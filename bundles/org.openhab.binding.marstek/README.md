@@ -1,4 +1,7 @@
 # Marstek Binding
+
+<img src="doc/logo.png" alt="Marstek Logo" width="25%">
+
 Disclaimer -- AI generated document --
 
 This binding integrates Marstek energy storage systems (Venus C/D/E series) with openHAB.
