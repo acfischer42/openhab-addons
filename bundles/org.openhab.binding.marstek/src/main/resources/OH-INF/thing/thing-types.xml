@@ -4,45 +4,257 @@
 	xmlns:thing="https://openhab.org/schemas/thing-description/v1.0.0"
 	xsi:schemaLocation="https://openhab.org/schemas/thing-description/v1.0.0 https://openhab.org/schemas/thing-description-1.0.0.xsd">
 
-	<!-- Sample Thing Type -->
-	<thing-type id="sample">
-		<!-- Comment this in for Things which need a Bridge to function.
-			<supported-bridge-type-refs>
-			<bridge-type-ref id="marstekBridge" />
-			</supported-bridge-type-refs>
-		-->
-
-		<label>marstek Binding Thing</label>
-		<description>Sample thing for marstek Binding</description>
+	<!-- Battery Thing Type (from Marstek OpenAPI) -->
+	<thing-type id="battery">
+		<label>Marstek Battery</label>
+		<description>Battery device exposed by Marstek Device Open API (Rev 1.0)</description>
 
 		<channels>
-			<channel id="channel1" typeId="sample-channel"/>
+			<!-- Battery Component Channels -->
+			<channel id="batterySoc" typeId="batterySoc"/>
+			<channel id="batteryTemperature" typeId="batteryTemperature"/>
+			<channel id="batteryCapacity" typeId="batteryCapacity"/>
+			<channel id="batteryRatedCapacity" typeId="batteryRatedCapacity"/>
+			<channel id="chargingFlag" typeId="chargingFlag"/>
+			<channel id="dischargingFlag" typeId="dischargingFlag"/>
+			
+			<!-- PV Component Channels -->
+			<channel id="pvPower" typeId="pvPower"/>
+			<channel id="pvVoltage" typeId="pvVoltage"/>
+			<channel id="pvCurrent" typeId="pvCurrent"/>
+			
+			<!-- Energy System Channels -->
+			<channel id="ongridPower" typeId="ongridPower"/>
+			<channel id="offgridPower" typeId="offgridPower"/>
+			<channel id="batteryPower" typeId="batteryPower"/>
+			<channel id="totalPvEnergy" typeId="totalPvEnergy"/>
+			<channel id="totalGridOutputEnergy" typeId="totalGridOutputEnergy"/>
+			<channel id="totalGridInputEnergy" typeId="totalGridInputEnergy"/>
+			<channel id="totalLoadEnergy" typeId="totalLoadEnergy"/>
+			<channel id="operatingMode" typeId="operatingMode"/>
+			
+			<!-- Energy Meter Channels -->
+			<channel id="ctState" typeId="ctState"/>
+			<channel id="phaseAPower" typeId="phaseAPower"/>
+			<channel id="phaseBPower" typeId="phaseBPower"/>
+			<channel id="phaseCPower" typeId="phaseCPower"/>
+			<channel id="totalMeterPower" typeId="totalMeterPower"/>
+			
+			<!-- WiFi Status Channels -->
+			<channel id="wifiRssi" typeId="wifiRssi"/>
+			<channel id="wifiSsid" typeId="wifiSsid"/>
+			<channel id="ipAddress" typeId="ipAddress"/>
+			
+			<!-- General -->
+			<channel id="lastUpdate" typeId="lastUpdate"/>
 		</channels>
 
 		<config-description>
 			<parameter name="hostname" type="text" required="true">
 				<context>network-address</context>
 				<label>Hostname</label>
-				<description>Hostname or IP address of the device</description>
-			</parameter>
-			<parameter name="password" type="text" required="true">
-				<context>password</context>
-				<label>Password</label>
-				<description>Password to access the device</description>
+				<description>Hostname or IP address of the Marstek device</description>
 			</parameter>
 			<parameter name="refreshInterval" type="integer" unit="s" min="1">
 				<label>Refresh Interval</label>
-				<description>Interval the device is polled in sec.</description>
-				<default>600</default>
-				<advanced>true</advanced>
+				<description>Polling interval in seconds</description>
+				<default>60</default>
 			</parameter>
 		</config-description>
 	</thing-type>
 
-	<!-- Sample Channel Type -->
-	<channel-type id="sample-channel">
+	<!-- Battery Component Channel Types -->
+	<channel-type id="batterySoc">
+		<item-type>Number:Dimensionless</item-type>
+		<label>Battery SOC</label>
+		<description>Battery state of charge</description>
+		<state readOnly="true" pattern="%.0f %%"/>
+	</channel-type>
+
+	<channel-type id="batteryTemperature">
 		<item-type>Number:Temperature</item-type>
-		<label>Example Temperature</label><!-- Use uppercase words, except prepositions. 2-3 words, max 25 chars -->
-		<description>Sample channel for marstek Binding</description>
+		<label>Battery Temperature</label>
+		<description>Battery temperature</description>
+		<state readOnly="true" pattern="%.1f °C"/>
+	</channel-type>
+
+	<channel-type id="batteryCapacity">
+		<item-type>Number:Energy</item-type>
+		<label>Battery Capacity</label>
+		<description>Battery remaining capacity</description>
+		<state readOnly="true" pattern="%.0f Wh"/>
+	</channel-type>
+
+	<channel-type id="batteryRatedCapacity">
+		<item-type>Number:Energy</item-type>
+		<label>Battery Rated Capacity</label>
+		<description>Battery rated capacity</description>
+		<state readOnly="true" pattern="%.0f Wh"/>
+	</channel-type>
+
+	<channel-type id="chargingFlag">
+		<item-type>Switch</item-type>
+		<label>Charging Permitted</label>
+		<description>Whether charging is permitted</description>
+		<state readOnly="true"/>
+	</channel-type>
+
+	<channel-type id="dischargingFlag">
+		<item-type>Switch</item-type>
+		<label>Discharging Permitted</label>
+		<description>Whether discharging is permitted</description>
+		<state readOnly="true"/>
+	</channel-type>
+
+	<!-- PV Component Channel Types -->
+	<channel-type id="pvPower">
+		<item-type>Number:Power</item-type>
+		<label>PV Power</label>
+		<description>Photovoltaic charging power</description>
+		<state readOnly="true" pattern="%.0f W"/>
+	</channel-type>
+
+	<channel-type id="pvVoltage">
+		<item-type>Number:ElectricPotential</item-type>
+		<label>PV Voltage</label>
+		<description>Photovoltaic charging voltage</description>
+		<state readOnly="true" pattern="%.1f V"/>
+	</channel-type>
+
+	<channel-type id="pvCurrent">
+		<item-type>Number:ElectricCurrent</item-type>
+		<label>PV Current</label>
+		<description>Photovoltaic charging current</description>
+		<state readOnly="true" pattern="%.1f A"/>
+	</channel-type>
+
+	<!-- Energy System Channel Types -->
+	<channel-type id="ongridPower">
+		<item-type>Number:Power</item-type>
+		<label>Grid Power</label>
+		<description>Grid-tied power (positive = to grid, negative = from grid)</description>
+		<state readOnly="true" pattern="%.0f W"/>
+	</channel-type>
+
+	<channel-type id="offgridPower">
+		<item-type>Number:Power</item-type>
+		<label>Off-Grid Power</label>
+		<description>Off-grid power consumption</description>
+		<state readOnly="true" pattern="%.0f W"/>
+	</channel-type>
+
+	<channel-type id="batteryPower">
+		<item-type>Number:Power</item-type>
+		<label>Battery Power</label>
+		<description>Battery power (positive = charging, negative = discharging)</description>
+		<state readOnly="true" pattern="%.0f W"/>
+	</channel-type>
+
+	<channel-type id="totalPvEnergy">
+		<item-type>Number:Energy</item-type>
+		<label>Total PV Energy</label>
+		<description>Total solar energy generated</description>
+		<state readOnly="true" pattern="%.0f Wh"/>
+	</channel-type>
+
+	<channel-type id="totalGridOutputEnergy">
+		<item-type>Number:Energy</item-type>
+		<label>Total Grid Output Energy</label>
+		<description>Total energy sent to grid</description>
+		<state readOnly="true" pattern="%.0f Wh"/>
+	</channel-type>
+
+	<channel-type id="totalGridInputEnergy">
+		<item-type>Number:Energy</item-type>
+		<label>Total Grid Input Energy</label>
+		<description>Total energy received from grid</description>
+		<state readOnly="true" pattern="%.0f Wh"/>
+	</channel-type>
+
+	<channel-type id="totalLoadEnergy">
+		<item-type>Number:Energy</item-type>
+		<label>Total Load Energy</label>
+		<description>Total load (or off-grid) energy consumed</description>
+		<state readOnly="true" pattern="%.0f Wh"/>
+	</channel-type>
+
+	<channel-type id="operatingMode">
+		<item-type>String</item-type>
+		<label>Operating Mode</label>
+		<description>Device operating mode (Auto, AI, Manual, Passive)</description>
+		<state readOnly="true">
+			<options>
+				<option value="Auto">Auto</option>
+				<option value="AI">AI</option>
+				<option value="Manual">Manual</option>
+				<option value="Passive">Passive</option>
+			</options>
+		</state>
+	</channel-type>
+
+	<!-- Energy Meter Channel Types -->
+	<channel-type id="ctState">
+		<item-type>Switch</item-type>
+		<label>CT Connected</label>
+		<description>Current Transformer connection status</description>
+		<state readOnly="true"/>
+	</channel-type>
+
+	<channel-type id="phaseAPower">
+		<item-type>Number:Power</item-type>
+		<label>Meter Phase A Power</label>
+		<description>Energy meter phase A power</description>
+		<state readOnly="true" pattern="%.0f W"/>
+	</channel-type>
+
+	<channel-type id="phaseBPower">
+		<item-type>Number:Power</item-type>
+		<label>Meter Phase B Power</label>
+		<description>Energy meter phase B power</description>
+		<state readOnly="true" pattern="%.0f W"/>
+	</channel-type>
+
+	<channel-type id="phaseCPower">
+		<item-type>Number:Power</item-type>
+		<label>Meter Phase C Power</label>
+		<description>Energy meter phase C power</description>
+		<state readOnly="true" pattern="%.0f W"/>
+	</channel-type>
+
+	<channel-type id="totalMeterPower">
+		<item-type>Number:Power</item-type>
+		<label>Total Meter Power</label>
+		<description>Total power from energy meter</description>
+		<state readOnly="true" pattern="%.0f W"/>
+	</channel-type>
+
+	<!-- WiFi Status Channel Types -->
+	<channel-type id="wifiRssi">
+		<item-type>Number</item-type>
+		<label>WiFi Signal Strength</label>
+		<description>WiFi signal strength (RSSI)</description>
+		<state readOnly="true" pattern="%d dBm"/>
+	</channel-type>
+
+	<channel-type id="wifiSsid">
+		<item-type>String</item-type>
+		<label>WiFi SSID</label>
+		<description>Connected WiFi network name</description>
+		<state readOnly="true"/>
+	</channel-type>
+
+	<channel-type id="ipAddress">
+		<item-type>String</item-type>
+		<label>IP Address</label>
+		<description>Device IP address</description>
+		<state readOnly="true"/>
+	</channel-type>
+
+	<!-- General Channel Types -->
+	<channel-type id="lastUpdate">
+		<item-type>DateTime</item-type>
+		<label>Last Update</label>
+		<description>Timestamp of last successful update</description>
+		<state readOnly="true"/>
 	</channel-type>
 </thing:thing-descriptions>

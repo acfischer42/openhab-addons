@@ -7,11 +7,42 @@
   <parent>
     <groupId>org.openhab.addons.bundles</groupId>
     <artifactId>org.openhab.addons.reactor.bundles</artifactId>
-    <version>5.1.0-SNAPSHOT</version>
+    <version>5.2.0-SNAPSHOT</version>
   </parent>
 
   <artifactId>org.openhab.binding.marstek</artifactId>
 
   <name>openHAB Add-ons :: Bundles :: marstek Binding</name>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.google.code.gson</groupId>
+      <artifactId>gson</artifactId>
+      <version>${gson.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.13.2</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>biz.aQute.bnd</groupId>
+        <artifactId>bnd-maven-plugin</artifactId>
+        <configuration>
+          <bnd><![CDATA[
+            Import-Package: \
+              com.google.errorprone.annotations;resolution:=optional,\
+              org.openhab.core.*;version="[5.0,6)",\
+              *
+          ]]></bnd>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
 
 </project>

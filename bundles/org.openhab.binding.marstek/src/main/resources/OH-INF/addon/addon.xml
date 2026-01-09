@@ -4,7 +4,7 @@
 	xsi:schemaLocation="https://openhab.org/schemas/addon/v1.0.0 https://openhab.org/schemas/addon-1.0.0.xsd">
 
 	<type>binding</type>
-	<name>marstek Binding</name>
-	<description>This is the binding for marstek.</description>
+	<name>Marstek Binding</name>
+	<description>Binding for Marstek energy storage systems (Venus C/D/E series). Monitor battery status, solar generation, grid power, energy meters, and system operating modes via local network API. Marstek devices communicate with third-party systems over a Local Area Network (LAN). Before using this binding, please ensure that the Marstek device is properly connected to your home network and the Open API feature has been enabled via the Marstek mobile app. Please note that different Marstek models may support only a subset of the commands.</description>
 
 </addon:addon>

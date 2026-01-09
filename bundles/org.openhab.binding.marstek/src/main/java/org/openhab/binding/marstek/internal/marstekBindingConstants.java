@@ -27,8 +27,43 @@ public class marstekBindingConstants {
     private static final String BINDING_ID = "marstek";
 
     // List of all Thing Type UIDs
-    public static final ThingTypeUID THING_TYPE_SAMPLE = new ThingTypeUID(BINDING_ID, "sample");
+    public static final ThingTypeUID THING_TYPE_BATTERY = new ThingTypeUID(BINDING_ID, "battery");
 
-    // List of all Channel ids
-    public static final String CHANNEL_1 = "channel1";
+    // Battery Component Channels
+    public static final String CHANNEL_BATTERY_SOC = "batterySoc";
+    public static final String CHANNEL_BATTERY_TEMPERATURE = "batteryTemperature";
+    public static final String CHANNEL_BATTERY_CAPACITY = "batteryCapacity";
+    public static final String CHANNEL_BATTERY_RATED_CAPACITY = "batteryRatedCapacity";
+    public static final String CHANNEL_CHARGING_FLAG = "chargingFlag";
+    public static final String CHANNEL_DISCHARGING_FLAG = "dischargingFlag";
+
+    // PV Component Channels
+    public static final String CHANNEL_PV_POWER = "pvPower";
+    public static final String CHANNEL_PV_VOLTAGE = "pvVoltage";
+    public static final String CHANNEL_PV_CURRENT = "pvCurrent";
+
+    // Energy System Channels
+    public static final String CHANNEL_ONGRID_POWER = "ongridPower";
+    public static final String CHANNEL_OFFGRID_POWER = "offgridPower";
+    public static final String CHANNEL_BATTERY_POWER = "batteryPower";
+    public static final String CHANNEL_TOTAL_PV_ENERGY = "totalPvEnergy";
+    public static final String CHANNEL_TOTAL_GRID_OUTPUT_ENERGY = "totalGridOutputEnergy";
+    public static final String CHANNEL_TOTAL_GRID_INPUT_ENERGY = "totalGridInputEnergy";
+    public static final String CHANNEL_TOTAL_LOAD_ENERGY = "totalLoadEnergy";
+    public static final String CHANNEL_OPERATING_MODE = "operatingMode";
+
+    // Energy Meter Channels
+    public static final String CHANNEL_CT_STATE = "ctState";
+    public static final String CHANNEL_PHASE_A_POWER = "phaseAPower";
+    public static final String CHANNEL_PHASE_B_POWER = "phaseBPower";
+    public static final String CHANNEL_PHASE_C_POWER = "phaseCPower";
+    public static final String CHANNEL_TOTAL_METER_POWER = "totalMeterPower";
+
+    // WiFi Status Channels
+    public static final String CHANNEL_WIFI_RSSI = "wifiRssi";
+    public static final String CHANNEL_WIFI_SSID = "wifiSsid";
+    public static final String CHANNEL_IP_ADDRESS = "ipAddress";
+
+    // General Channels
+    public static final String CHANNEL_LAST_UPDATE = "lastUpdate";
 }

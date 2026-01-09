@@ -28,4 +28,8 @@ public class marstekConfiguration {
     public String hostname = "";
     public String password = "";
     public int refreshInterval = 600;
+    /**
+     * UDP port of the Marstek device. If 0 the handler will use the default port 30000.
+     */
+    public int port = 30000;
 }
