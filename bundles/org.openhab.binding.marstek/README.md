@@ -1,95 +1,236 @@
-# marstek Binding
+# Marstek Binding
+Disclaimer -- AI generated document --
 
-_Give some details about what this binding is meant for - a protocol, system, specific device._
+This binding integrates Marstek energy storage systems (Venus C/D/E series) with openHAB.
+It allows you to monitor battery status, solar generation, grid power, energy meters, and system operating modes via the Marstek Device Open API (Rev 1.0).
 
-_If possible, provide some resources like pictures (only PNG is supported currently), a video, etc. to give an impression of what can be done with this binding._
-_You can place such resources into a `doc` folder next to this README.md._
+Marstek devices communicate with third-party systems over a Local Area Network (LAN).
+Before using this binding, please ensure that your Marstek device is properly connected to your home network and the Open API feature has been enabled via the Marstek mobile app.
 
-_Put each sentence in a separate line to improve readability of diffs._
+Please note that different Marstek models may support only a subset of the commands.
+This binding has been tested with the VenusE 3.0 model.
 
 ## Supported Things
 
-_Please describe the different supported things / devices including their ThingTypeUID within this section._
-_Which different types are supported, which models were tested etc.?_
-_Note that it is planned to generate some part of this based on the XML files within ```src/main/resources/OH-INF/thing``` of your binding._
+This binding supports one thing type:
 
-- `bridge`: Short description of the Bridge, if any
-- `sample`: Short description of the Thing with the ThingTypeUID `sample`
+- `battery`: Represents a Marstek energy storage device exposed via the Marstek Device Open API (Rev 1.0)
 
 ## Discovery
 
-_Describe the available auto-discovery features here._
-_Mention for what it works and what needs to be kept in mind when using it._
-
-## Binding Configuration
-
-_If your binding requires or supports general configuration settings, please create a folder ```cfg``` and place the configuration file ```<bindingId>.cfg``` inside it._
-_In this section, you should link to this file and provide some information about the options._
-_The file could e.g. look like:_
-
-```
-# Configuration for the marstek Binding
-#
-# Default secret key for the pairing of the marstek Thing.
-# It has to be between 10-40 (alphanumeric) characters.
-# This may be changed by the user for security reasons.
-secret=openHABSecret
-```
-
-_Note that it is planned to generate some part of this based on the information that is available within ```src/main/resources/OH-INF/binding``` of your binding._
-
-_If your binding does not offer any generic configurations, you can remove this section completely._
+Discovery is not supported by this binding.
+Things must be configured manually.
 
 ## Thing Configuration
 
-_Describe what is needed to manually configure a thing, either through the UI or via a thing-file._
-_This should be mainly about its mandatory and optional configuration parameters._
-
-_Note that it is planned to generate some part of this based on the XML files within ```src/main/resources/OH-INF/thing``` of your binding._
-
-### `sample` Thing Configuration
+### `battery` Thing Configuration
 
 | Name            | Type    | Description                           | Default | Required | Advanced |
 |-----------------|---------|---------------------------------------|---------|----------|----------|
 | hostname        | text    | Hostname or IP address of the device  | N/A     | yes      | no       |
-| password        | text    | Password to access the device         | N/A     | yes      | no       |
-| refreshInterval | integer | Interval the device is polled in sec. | 600     | no       | yes      |
+| port            | integer | UDP port number                       | 30000   | no       | no       |
+| refreshInterval | integer | Interval the device is polled in sec. | 30      | no       | yes      |
 
 ## Channels
 
-_Here you should provide information about available channel types, what their meaning is and how they can be used._
+### Battery Channels
 
-_Note that it is planned to generate some part of this based on the XML files within ```src/main/resources/OH-INF/thing``` of your binding._
+| Channel              | Type                 | Read/Write | Description                                    |
+|----------------------|----------------------|------------|------------------------------------------------|
+| batterySoc           | Number:Dimensionless | R          | Battery State of Charge (0-100%)               |
+| batteryTemperature   | Number:Temperature   | R          | Battery Temperature                            |
+| batteryCapacity      | Number:Energy        | R          | Current Battery Capacity                       |
+| batteryRatedCapacity | Number:Energy        | R          | Rated Battery Capacity                         |
+| chargingFlag         | Switch               | R          | Battery Charging Status                        |
+| dischargingFlag      | Switch               | R          | Battery Discharging Status                     |
 
-| Channel | Type   | Read/Write | Description                 |
-|---------|--------|------------|-----------------------------|
-| control | Switch | RW         | This is the control channel |
+### Photovoltaic (PV) Channels
+
+| Channel   | Type              | Read/Write | Description              |
+|-----------|-------------------|------------|--------------------------|
+| pvPower   | Number:Power      | R          | Photovoltaic Power       |
+| pvVoltage | Number:ElectricPotential | R   | Photovoltaic Voltage     |
+| pvCurrent | Number:ElectricCurrent   | R   | Photovoltaic Current     |
+
+### Energy System Channels
+
+| Channel                 | Type         | Read/Write | Description                       |
+|-------------------------|--------------|------------|-----------------------------------|
+| ongridPower             | Number:Power | R          | On-Grid Power                     |
+| offgridPower            | Number:Power | R          | Off-Grid Power                    |
+| batteryPower            | Number:Power | R          | Battery Power                     |
+| totalPvEnergy           | Number:Energy| R          | Total Photovoltaic Energy         |
+| totalGridOutputEnergy   | Number:Energy| R          | Total Grid Output Energy          |
+| totalGridInputEnergy    | Number:Energy| R          | Total Grid Input Energy           |
+| totalLoadEnergy         | Number:Energy| R          | Total Load Energy                 |
+| operatingMode           | String       | R          | Operating Mode                    |
+
+### Energy Meter Channels
+
+| Channel         | Type         | Read/Write | Description                |
+|-----------------|--------------|------------|----------------------------|
+| ctState         | Switch       | R          | CT (Current Transformer) State |
+| phaseAPower     | Number:Power | R          | Meter Phase A Power        |
+| phaseBPower     | Number:Power | R          | Meter Phase B Power        |
+| phaseCPower     | Number:Power | R          | Meter Phase C Power        |
+| totalMeterPower | Number:Power | R          | Total Meter Power          |
+
+### WiFi Channels
+
+| Channel   | Type   | Read/Write | Description        |
+|-----------|--------|------------|--------------------|
+| wifiRssi  | Number | R          | WiFi Signal Strength (RSSI) |
+| wifiSsid  | String | R          | WiFi Network Name (SSID) |
+| ipAddress | String | R          | IP Address         |
+
+### General Channels
+
+| Channel    | Type             | Read/Write | Description           |
+|------------|------------------|------------|-----------------------|
+| lastUpdate | DateTime         | R          | Last Update Timestamp |
 
 ## Full Example
-
-_Provide a full usage example based on textual configuration files._
-_*.things, *.items examples are mandatory as textual configuration is well used by many users._
-_*.sitemap examples are optional._
 
 ### Thing Configuration
 
 ```java
-Example thing configuration goes here.
+Thing marstek:battery:mydevice "Marstek Battery" [ hostname="192.168.188.145", port=30000, refreshInterval=30 ]
 ```
 
 ### Item Configuration
 
 ```java
-Example item configuration goes here.
+// Battery
+Number:Dimensionless BatterySoc "Battery SOC [%d %%]" { channel="marstek:battery:mydevice:batterySoc" }
+Number:Temperature BatteryTemp "Battery Temperature [%.1f %unit%]" { channel="marstek:battery:mydevice:batteryTemperature" }
+Number:Energy BatteryCapacity "Battery Capacity [%.2f kWh]" { channel="marstek:battery:mydevice:batteryCapacity" }
+Number:Energy BatteryRatedCapacity "Battery Rated Capacity [%.2f kWh]" { channel="marstek:battery:mydevice:batteryRatedCapacity" }
+Switch BatteryCharging "Battery Charging" { channel="marstek:battery:mydevice:chargingFlag" }
+Switch BatteryDischarging "Battery Discharging" { channel="marstek:battery:mydevice:dischargingFlag" }
+
+// Photovoltaic
+Number:Power PvPower "PV Power [%.0f W]" { channel="marstek:battery:mydevice:pvPower" }
+Number:ElectricPotential PvVoltage "PV Voltage [%.1f V]" { channel="marstek:battery:mydevice:pvVoltage" }
+Number:ElectricCurrent PvCurrent "PV Current [%.2f A]" { channel="marstek:battery:mydevice:pvCurrent" }
+
+// Energy System
+Number:Power OnGridPower "On-Grid Power [%.0f W]" { channel="marstek:battery:mydevice:ongridPower" }
+Number:Power OffGridPower "Off-Grid Power [%.0f W]" { channel="marstek:battery:mydevice:offgridPower" }
+Number:Power BatteryPower "Battery Power [%.0f W]" { channel="marstek:battery:mydevice:batteryPower" }
+Number:Energy TotalPvEnergy "Total PV Energy [%.2f kWh]" { channel="marstek:battery:mydevice:totalPvEnergy" }
+Number:Energy TotalGridOutputEnergy "Total Grid Output [%.2f kWh]" { channel="marstek:battery:mydevice:totalGridOutputEnergy" }
+Number:Energy TotalGridInputEnergy "Total Grid Input [%.2f kWh]" { channel="marstek:battery:mydevice:totalGridInputEnergy" }
+Number:Energy TotalLoadEnergy "Total Load [%.2f kWh]" { channel="marstek:battery:mydevice:totalLoadEnergy" }
+String OperatingMode "Operating Mode [%s]" { channel="marstek:battery:mydevice:operatingMode" }
+
+// Energy Meter
+Switch CtState "CT State" { channel="marstek:battery:mydevice:ctState" }
+Number:Power PhaseAPower "Phase A Power [%.0f W]" { channel="marstek:battery:mydevice:phaseAPower" }
+Number:Power PhaseBPower "Phase B Power [%.0f W]" { channel="marstek:battery:mydevice:phaseBPower" }
+Number:Power PhaseCPower "Phase C Power [%.0f W]" { channel="marstek:battery:mydevice:phaseCPower" }
+Number:Power TotalMeterPower "Total Meter Power [%.0f W]" { channel="marstek:battery:mydevice:totalMeterPower" }
+
+// WiFi
+Number WifiRssi "WiFi RSSI [%d dBm]" { channel="marstek:battery:mydevice:wifiRssi" }
+String WifiSsid "WiFi SSID [%s]" { channel="marstek:battery:mydevice:wifiSsid" }
+String IpAddress "IP Address [%s]" { channel="marstek:battery:mydevice:ipAddress" }
+
+// General
+DateTime LastUpdate "Last Update [%1$tY-%1$tm-%1$td %1$tH:%1$tM:%1$tS]" { channel="marstek:battery:mydevice:lastUpdate" }
 ```
 
 ### Sitemap Configuration
 
 ```perl
-Optional Sitemap configuration goes here.
-Remove this section, if not needed.
+sitemap marstek label="Marstek Energy System" {
+    Frame label="Battery" {
+        Text item=BatterySoc
+        Text item=BatteryTemp
+        Text item=BatteryCapacity
+        Text item=BatteryRatedCapacity
+        Switch item=BatteryCharging
+        Switch item=BatteryDischarging
+    }
+    
+    Frame label="Solar Generation" {
+        Text item=PvPower
+        Text item=PvVoltage
+        Text item=PvCurrent
+    }
+    
+    Frame label="Energy System" {
+        Text item=OnGridPower
+        Text item=OffGridPower
+        Text item=BatteryPower
+        Text item=OperatingMode
+    }
+    
+    Frame label="Energy Totals" {
+        Text item=TotalPvEnergy
+        Text item=TotalGridOutputEnergy
+        Text item=TotalGridInputEnergy
+        Text item=TotalLoadEnergy
+    }
+    
+    Frame label="Energy Meter" {
+        Switch item=CtState
+        Text item=PhaseAPower
+        Text item=PhaseBPower
+        Text item=PhaseCPower
+        Text item=TotalMeterPower
+    }
+    
+    Frame label="Network" {
+        Text item=WifiRssi
+        Text item=WifiSsid
+        Text item=IpAddress
+    }
+    
+    Frame label="Status" {
+        Text item=LastUpdate
+    }
+}
 ```
 
-## Any custom content here!
+## Prerequisites
 
-_Feel free to add additional sections for whatever you think should also be mentioned about your binding!_
+1. Connect your Marstek device to your local network via WiFi or Ethernet
+2. Enable the Open API feature in the Marstek mobile app:
+   - Open the Marstek mobile app
+   - Navigate to device settings
+   - Enable "Open API" or "Third-party API" option
+3. Note your device's IP address from the app or your router
+
+## Communication Protocol
+
+The binding communicates with Marstek devices using JSON-RPC over UDP on port 30000 (default).
+The following API methods are supported:
+
+- `Marstek.GetDevice` - Device information
+- `Bat.GetStatus` - Battery status
+- `PV.GetStatus` - Photovoltaic status
+- `ES.GetStatus` - Energy system status
+- `ES.GetMode` - Operating mode
+- `EM.GetStatus` - Energy meter status
+- `Wifi.GetStatus` - WiFi status
+
+## Troubleshooting
+
+### Thing Shows OFFLINE
+
+1. Verify the device is connected to your network
+2. Check the IP address is correct
+3. Ensure the Open API feature is enabled in the Marstek mobile app
+4. Check firewall settings on your openHAB server
+
+### Channels Not Updating
+
+1. Check the refresh interval (default 30 seconds)
+2. Verify your device model supports the specific channels (different models have different capabilities)
+3. Check openHAB logs for errors or timeouts
+
+### Partial Channel Support
+
+Different Marstek models support different features.
+If certain channels remain NULL, your device model may not support those features.
+This is normal behavior and does not indicate a problem with the binding.
