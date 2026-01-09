@@ -30,3 +30,7 @@ pom.xml.versionsBackup
 .vim
 shell.nix
 tags
+.github/copilot-instructions.md
+bundles/org.openhab.binding.marstek/dev/*
+bundles/org.openhab.binding.marstek/tools/*
+
