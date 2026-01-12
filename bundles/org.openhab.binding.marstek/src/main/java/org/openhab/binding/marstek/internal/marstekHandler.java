@@ -60,16 +60,82 @@ public class marstekHandler extends BaseThingHandler {
     private volatile int consecutiveFailures = 0;
     private static final int MAX_FAILURES_BEFORE_OFFLINE = 3;
 
+    // Passive mode settings
+    private volatile int passivePowerSetting = 0;
+    private volatile int passiveCountdownSetting = 300;
+
+    // Manual mode time period storage (4 periods)
+    private final TimePeriod[] timePeriods = new TimePeriod[4];
+
+    static class TimePeriod {
+        boolean enabled = false;
+        String start = "00:00";
+        String end = "00:00";
+        int weekdaysBitmask = 0;
+        int power = 0;
+    }
+
     public marstekHandler(Thing thing) {
         super(thing);
+        // Initialize time periods
+        for (int i = 0; i < timePeriods.length; i++) {
+            timePeriods[i] = new TimePeriod();
+        }
     }
 
     @Override
     public void handleCommand(ChannelUID channelUID, Command command) {
         if (command instanceof RefreshType) {
             scheduler.execute(this::refresh);
+            return;
         }
-        // Note: Marstek API is primarily read-only, no write commands implemented
+
+        String channelId = channelUID.getId();
+
+        // Handle mode selection commands
+        if (CHANNEL_MODE_SELECT.equals(channelId) && command instanceof StringType) {
+            String mode = command.toString();
+            scheduler.execute(() -> setOperatingMode(mode));
+        }
+
+        // Handle passive mode power setting
+        else if (CHANNEL_PASSIVE_POWER.equals(channelId) && command instanceof QuantityType) {
+            QuantityType<?> quantity = (QuantityType<?>) command;
+            QuantityType<?> watts = quantity.toUnit(Units.WATT);
+            if (watts != null) {
+                passivePowerSetting = watts.intValue();
+                logger.debug("Passive power setting updated to {} W", passivePowerSetting);
+            }
+        }
+
+        // Handle passive mode countdown setting
+        else if (CHANNEL_PASSIVE_COUNTDOWN.equals(channelId) && command instanceof QuantityType) {
+            QuantityType<?> quantity = (QuantityType<?>) command;
+            QuantityType<?> seconds = quantity.toUnit(Units.SECOND);
+            if (seconds != null) {
+                passiveCountdownSetting = seconds.intValue();
+                logger.debug("Passive countdown setting updated to {} s", passiveCountdownSetting);
+            }
+        }
+
+        // Handle passive mode activation
+        else if (CHANNEL_PASSIVE_ACTIVATE.equals(channelId) && command instanceof OnOffType) {
+            if (command == OnOffType.ON) {
+                scheduler.execute(() -> activatePassiveMode(passivePowerSetting, passiveCountdownSetting));
+            }
+        }
+
+        // Handle manual mode activation
+        else if (CHANNEL_MANUAL_ACTIVATE.equals(channelId) && command instanceof OnOffType) {
+            if (command == OnOffType.ON) {
+                scheduler.execute(this::activateManualMode);
+            }
+        }
+
+        // Handle manual mode time period settings
+        else if (channelId.startsWith(CHANNEL_GROUP_PERIOD_PREFIX)) {
+            handleTimePeriodCommand(channelId, command);
+        }
     }
 
     @Override
@@ -88,7 +154,7 @@ public class marstekHandler extends BaseThingHandler {
             if (disposed) {
                 return;
             }
-            
+
             // Test connectivity
             boolean thingReachable = testConnection();
 
@@ -98,8 +164,7 @@ public class marstekHandler extends BaseThingHandler {
                 refreshTask = scheduler.scheduleWithFixedDelay(this::refresh, 0, Math.max(1, refreshInterval),
                         java.util.concurrent.TimeUnit.SECONDS);
             } else {
-                updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.COMMUNICATION_ERROR,
-                        "Could not connect to device");
+                updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.COMMUNICATION_ERROR, "Could not connect to device");
             }
         });
     }
@@ -107,13 +172,13 @@ public class marstekHandler extends BaseThingHandler {
     @Override
     public void dispose() {
         disposed = true;
-        
+
         ScheduledFuture<?> task = refreshTask;
         if (task != null) {
             task.cancel(true);
             refreshTask = null;
         }
-        
+
         super.dispose();
     }
 
@@ -123,7 +188,7 @@ public class marstekHandler extends BaseThingHandler {
             int port = config != null ? config.port : 30000;
 
             logger.debug("Testing connection to Marstek device at {}:{}", host, port);
-            
+
             // Send Marstek.GetDevice request with longer timeout for initialization
             String request = "{\"id\":0,\"method\":\"Marstek.GetDevice\",\"params\":{}}";
             byte[] response = MarstekUdpHelper.sendRequest(host, port, request.getBytes(StandardCharsets.UTF_8), 0,
@@ -149,7 +214,7 @@ public class marstekHandler extends BaseThingHandler {
         if (disposed) {
             return;
         }
-        
+
         try {
             String host = config != null ? config.hostname : "127.0.0.1";
             int port = config != null ? config.port : 30000;
@@ -157,11 +222,11 @@ public class marstekHandler extends BaseThingHandler {
 
             // Test if device is reachable before querying
             boolean deviceReachable = testDeviceReachable(host, port, timeoutMs);
-            
+
             if (!deviceReachable) {
                 consecutiveFailures++;
                 logger.debug("Device unreachable, consecutive failures: {}", consecutiveFailures);
-                
+
                 if (consecutiveFailures >= MAX_FAILURES_BEFORE_OFFLINE) {
                     if (getThing().getStatus() == ThingStatus.ONLINE) {
                         updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.COMMUNICATION_ERROR,
@@ -174,7 +239,7 @@ public class marstekHandler extends BaseThingHandler {
 
             // Device responded, reset failure counter
             consecutiveFailures = 0;
-            
+
             // Query all components
             queryBatteryStatus(host, port, timeoutMs);
             queryPvStatus(host, port, timeoutMs);
@@ -185,7 +250,7 @@ public class marstekHandler extends BaseThingHandler {
 
             // Update last update timestamp
             safeUpdateState(CHANNEL_LAST_UPDATE, new DateTimeType(ZonedDateTime.now()));
-            
+
             // If we were offline, mark back online
             if (getThing().getStatus() != ThingStatus.ONLINE) {
                 updateStatus(ThingStatus.ONLINE);
@@ -196,7 +261,7 @@ public class marstekHandler extends BaseThingHandler {
             consecutiveFailures++;
             logger.debug("Error refreshing Marstek device: {}, consecutive failures: {}", e.getMessage(),
                     consecutiveFailures);
-            
+
             if (consecutiveFailures >= MAX_FAILURES_BEFORE_OFFLINE) {
                 if (getThing().getStatus() == ThingStatus.ONLINE) {
                     updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.COMMUNICATION_ERROR,
@@ -368,8 +433,7 @@ public class marstekHandler extends BaseThingHandler {
         }
     }
 
-    private void updateNumberChannel(String channelId, JsonObject json, String fieldName,
-            javax.measure.Unit<?> unit) {
+    private void updateNumberChannel(String channelId, JsonObject json, String fieldName, javax.measure.Unit<?> unit) {
         if (json.has(fieldName)) {
             JsonElement element = json.get(fieldName);
             if (!element.isJsonNull()) {
@@ -392,6 +456,305 @@ public class marstekHandler extends BaseThingHandler {
     private void safeUpdateState(String channelId, org.openhab.core.types.State state) {
         if (!disposed && getThing().getStatus() == ThingStatus.ONLINE) {
             updateState(channelId, state);
+        }
+    }
+
+    /**
+     * Set device operating mode (Auto, AI, or UPS)
+     */
+    private void setOperatingMode(String mode) {
+        if (disposed) {
+            return;
+        }
+
+        try {
+            String host = config != null ? config.hostname : "127.0.0.1";
+            int port = config != null ? config.port : 30000;
+
+            String request;
+            if ("Auto".equals(mode)) {
+                request = "{\"id\":0,\"method\":\"ES.SetMode\",\"params\":{\"id\":0,\"config\":{\"mode\":\"Auto\",\"auto_cfg\":{\"enable\":1}}}}";
+            } else if ("AI".equals(mode)) {
+                request = "{\"id\":0,\"method\":\"ES.SetMode\",\"params\":{\"id\":0,\"config\":{\"mode\":\"AI\",\"ai_cfg\":{\"enable\":1}}}}";
+            } else if ("UPS".equals(mode)) {
+                // UPS mode = Manual mode with 24/7 operation at -2500W (charge from grid)
+                request = "{\"id\":0,\"method\":\"ES.SetMode\",\"params\":{\"id\":0,\"config\":{\"mode\":\"Manual\",\"manual_cfg\":{\"time_num\":1,\"start_time\":\"00:00\",\"end_time\":\"23:59\",\"week_set\":127,\"power\":-2500,\"enable\":1}}}}";
+            } else {
+                logger.warn("Unsupported mode selection: {}", mode);
+                return;
+            }
+
+            logger.debug("Setting operating mode to: {}", mode);
+            byte[] response = MarstekUdpHelper.sendRequest(host, port, request.getBytes(StandardCharsets.UTF_8), 0,
+                    2000);
+
+            if (response != null) {
+                JsonObject json = gson.fromJson(new String(response, StandardCharsets.UTF_8), JsonObject.class);
+                JsonObject result = json.getAsJsonObject("result");
+
+                if (result != null && result.has("set_result")) {
+                    boolean success = result.get("set_result").getAsBoolean();
+                    if (success) {
+                        logger.info("Successfully set operating mode to {}", mode);
+                        // Update the operatingMode channel after a short delay
+                        scheduler.schedule(this::refresh, 1, java.util.concurrent.TimeUnit.SECONDS);
+                    } else {
+                        logger.warn("Failed to set operating mode to {}", mode);
+                    }
+                } else {
+                    logger.warn("Unexpected response when setting mode: {}", new String(response));
+                }
+            } else {
+                logger.warn("No response when setting operating mode to {}", mode);
+            }
+        } catch (Exception e) {
+            logger.warn("Error setting operating mode: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Activate passive mode with specified power and countdown
+     */
+    private void activatePassiveMode(int power, int countdown) {
+        if (disposed) {
+            return;
+        }
+
+        try {
+            String host = config != null ? config.hostname : "127.0.0.1";
+            int port = config != null ? config.port : 30000;
+
+            String request = String.format(
+                    "{\"id\":0,\"method\":\"ES.SetMode\",\"params\":{\"id\":0,\"config\":{\"mode\":\"Passive\",\"passive_cfg\":{\"power\":%d,\"cd_time\":%d}}}}",
+                    power, countdown);
+
+            logger.debug("Activating passive mode with power={} W, countdown={} s", power, countdown);
+            byte[] response = MarstekUdpHelper.sendRequest(host, port, request.getBytes(StandardCharsets.UTF_8), 0,
+                    2000);
+
+            if (response != null) {
+                JsonObject json = gson.fromJson(new String(response, StandardCharsets.UTF_8), JsonObject.class);
+                JsonObject result = json.getAsJsonObject("result");
+
+                if (result != null && result.has("set_result")) {
+                    boolean success = result.get("set_result").getAsBoolean();
+                    if (success) {
+                        logger.info("Successfully activated passive mode with power={} W, countdown={} s", power,
+                                countdown);
+                        // Reset the switch and update mode after a short delay
+                        scheduler.schedule(() -> {
+                            updateState(CHANNEL_PASSIVE_ACTIVATE, OnOffType.OFF);
+                            refresh();
+                        }, 1, java.util.concurrent.TimeUnit.SECONDS);
+                    } else {
+                        logger.warn("Failed to activate passive mode");
+                        updateState(CHANNEL_PASSIVE_ACTIVATE, OnOffType.OFF);
+                    }
+                } else {
+                    logger.warn("Unexpected response when activating passive mode: {}", new String(response));
+                    updateState(CHANNEL_PASSIVE_ACTIVATE, OnOffType.OFF);
+                }
+            } else {
+                logger.warn("No response when activating passive mode");
+                updateState(CHANNEL_PASSIVE_ACTIVATE, OnOffType.OFF);
+            }
+        } catch (Exception e) {
+            logger.warn("Error activating passive mode: {}", e.getMessage(), e);
+            updateState(CHANNEL_PASSIVE_ACTIVATE, OnOffType.OFF);
+        }
+    }
+
+    /**
+     * Handle commands for manual mode time period channels
+     */
+    private void handleTimePeriodCommand(String channelId, Command command) {
+        // Parse channel ID: timePeriod1_enabled, timePeriod2_start, etc.
+        String[] parts = channelId.split("_", 2);
+        if (parts.length != 2) {
+            return;
+        }
+
+        String groupId = parts[0]; // e.g., "timePeriod1"
+        String channelName = parts[1]; // e.g., "enabled"
+
+        // Extract period index (0-3)
+        int periodIndex = -1;
+        for (int i = 1; i <= 4; i++) {
+            if (groupId.equals(CHANNEL_GROUP_PERIOD_PREFIX + i)) {
+                periodIndex = i - 1;
+                break;
+            }
+        }
+
+        if (periodIndex < 0 || periodIndex >= timePeriods.length) {
+            return;
+        }
+
+        TimePeriod period = timePeriods[periodIndex];
+
+        // Update the appropriate field
+        switch (channelName) {
+            case CHANNEL_PERIOD_ENABLED:
+                if (command instanceof OnOffType) {
+                    period.enabled = (command == OnOffType.ON);
+                    logger.debug("Period {} enabled: {}", periodIndex + 1, period.enabled);
+                }
+                break;
+
+            case CHANNEL_PERIOD_START:
+                if (command instanceof StringType) {
+                    period.start = command.toString();
+                    logger.debug("Period {} start time: {}", periodIndex + 1, period.start);
+                }
+                break;
+
+            case CHANNEL_PERIOD_END:
+                if (command instanceof StringType) {
+                    period.end = command.toString();
+                    logger.debug("Period {} end time: {}", periodIndex + 1, period.end);
+                }
+                break;
+
+            case CHANNEL_PERIOD_WEEKDAYS:
+                if (command instanceof StringType) {
+                    period.weekdaysBitmask = weekdaysStringToBitmask(command.toString());
+                    logger.debug("Period {} weekdays bitmask: {}", periodIndex + 1, period.weekdaysBitmask);
+                }
+                break;
+
+            case CHANNEL_PERIOD_POWER:
+                if (command instanceof QuantityType) {
+                    QuantityType<?> quantity = (QuantityType<?>) command;
+                    QuantityType<?> watts = quantity.toUnit(Units.WATT);
+                    if (watts != null) {
+                        period.power = watts.intValue();
+                        logger.debug("Period {} power: {} W", periodIndex + 1, period.power);
+                    }
+                } else if (command instanceof DecimalType) {
+                    period.power = ((DecimalType) command).intValue();
+                    logger.debug("Period {} power: {} W", periodIndex + 1, period.power);
+                }
+                break;
+        }
+    }
+
+    /**
+     * Convert weekdays string to bitmask
+     * Format: "Mon,Tue,Wed,Thu,Fri" or "Mon-Fri" or "Daily"
+     * Bitmask: Mon=1, Tue=2, Wed=4, Thu=8, Fri=16, Sat=32, Sun=64
+     */
+    private int weekdaysStringToBitmask(String weekdays) {
+        if ("Daily".equals(weekdays)) {
+            return 127; // All days
+        }
+
+        int bitmask = 0;
+        String[] days = weekdays.split(",");
+
+        for (String day : days) {
+            day = day.trim();
+            switch (day) {
+                case "Mon":
+                    bitmask |= 1;
+                    break;
+                case "Tue":
+                    bitmask |= 2;
+                    break;
+                case "Wed":
+                    bitmask |= 4;
+                    break;
+                case "Thu":
+                    bitmask |= 8;
+                    break;
+                case "Fri":
+                    bitmask |= 16;
+                    break;
+                case "Sat":
+                    bitmask |= 32;
+                    break;
+                case "Sun":
+                    bitmask |= 64;
+                    break;
+                case "Mon-Fri":
+                    bitmask = 31; // Mon + Tue + Wed + Thu + Fri
+                    break;
+                case "Weekend":
+                    bitmask |= 96; // Sat + Sun
+                    break;
+            }
+        }
+
+        return bitmask;
+    }
+
+    /**
+     * Activate manual mode with configured time periods
+     */
+    private void activateManualMode() {
+        if (disposed) {
+            return;
+        }
+
+        try {
+            String host = config != null ? config.hostname : "127.0.0.1";
+            int port = config != null ? config.port : 30000;
+
+            // Build time periods JSON array (only enabled periods)
+            StringBuilder periodsJson = new StringBuilder("[");
+            boolean first = true;
+            for (TimePeriod period : timePeriods) {
+                if (period.enabled) {
+                    if (!first) {
+                        periodsJson.append(",");
+                    }
+                    periodsJson.append(String.format("{\"start\":\"%s\",\"end\":\"%s\",\"weekdays\":%d,\"power\":%d}",
+                            period.start, period.end, period.weekdaysBitmask, period.power));
+                    first = false;
+                }
+            }
+            periodsJson.append("]");
+
+            String request = String.format(
+                    "{\"id\":0,\"method\":\"ES.SetMode\",\"params\":{\"id\":0,\"config\":{\"mode\":\"Manual\",\"manual_cfg\":{\"time_periods\":%s}}}}",
+                    periodsJson);
+
+            logger.debug("Activating manual mode with request: {}", request);
+            logger.debug("Time periods JSON: {}", periodsJson);
+            byte[] response = MarstekUdpHelper.sendRequest(host, port, request.getBytes(StandardCharsets.UTF_8), 0,
+                    2000);
+
+            if (response != null) {
+                String responseStr = new String(response, StandardCharsets.UTF_8);
+                logger.debug("Manual mode activation response: {}", responseStr);
+
+                JsonObject json = gson.fromJson(responseStr, JsonObject.class);
+                JsonObject result = json != null ? json.getAsJsonObject("result") : null;
+
+                if (result != null && result.has("set_result")) {
+                    boolean success = result.get("set_result").getAsBoolean();
+                    if (success) {
+                        logger.info("Successfully activated manual mode");
+                        // Reset the switch and update mode after a short delay
+                        scheduler.schedule(() -> {
+                            updateState(CHANNEL_MANUAL_ACTIVATE, OnOffType.OFF);
+                            refresh();
+                        }, 1, java.util.concurrent.TimeUnit.SECONDS);
+                    } else {
+                        logger.warn("Failed to activate manual mode (set_result=false)");
+                        updateState(CHANNEL_MANUAL_ACTIVATE, OnOffType.OFF);
+                    }
+                } else {
+                    logger.warn("Unexpected response when activating manual mode. Response: {}", responseStr);
+                    logger.warn("Parsed JSON: {}, Result object: {}", json, result);
+                    updateState(CHANNEL_MANUAL_ACTIVATE, OnOffType.OFF);
+                }
+            } else {
+                logger.warn("No response when activating manual mode");
+                updateState(CHANNEL_MANUAL_ACTIVATE, OnOffType.OFF);
+            }
+        } catch (Exception e) {
+            logger.warn("Error activating manual mode: {}", e.getMessage(), e);
+            updateState(CHANNEL_MANUAL_ACTIVATE, OnOffType.OFF);
         }
     }
 }
