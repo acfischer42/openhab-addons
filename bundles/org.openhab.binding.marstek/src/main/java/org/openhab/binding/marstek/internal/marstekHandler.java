@@ -57,6 +57,8 @@ public class marstekHandler extends BaseThingHandler {
     private @Nullable ScheduledFuture<?> refreshTask;
     private volatile int refreshInterval = 60;
     private volatile boolean disposed = false;
+    private volatile int consecutiveFailures = 0;
+    private static final int MAX_FAILURES_BEFORE_OFFLINE = 3;
 
     public marstekHandler(Thing thing) {
         super(thing);
@@ -73,6 +75,7 @@ public class marstekHandler extends BaseThingHandler {
     @Override
     public void initialize() {
         disposed = false;
+        consecutiveFailures = 0;
         config = getConfigAs(marstekConfiguration.class);
 
         if (config != null && config.refreshInterval > 0) {
@@ -152,6 +155,26 @@ public class marstekHandler extends BaseThingHandler {
             int port = config != null ? config.port : 30000;
             int timeoutMs = 2000;
 
+            // Test if device is reachable before querying
+            boolean deviceReachable = testDeviceReachable(host, port, timeoutMs);
+            
+            if (!deviceReachable) {
+                consecutiveFailures++;
+                logger.debug("Device unreachable, consecutive failures: {}", consecutiveFailures);
+                
+                if (consecutiveFailures >= MAX_FAILURES_BEFORE_OFFLINE) {
+                    if (getThing().getStatus() == ThingStatus.ONLINE) {
+                        updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.COMMUNICATION_ERROR,
+                                "No response from device");
+                        logger.info("Device went OFFLINE after {} consecutive failures", consecutiveFailures);
+                    }
+                }
+                return;
+            }
+
+            // Device responded, reset failure counter
+            consecutiveFailures = 0;
+            
             // Query all components
             queryBatteryStatus(host, port, timeoutMs);
             queryPvStatus(host, port, timeoutMs);
@@ -166,12 +189,37 @@ public class marstekHandler extends BaseThingHandler {
             // If we were offline, mark back online
             if (getThing().getStatus() != ThingStatus.ONLINE) {
                 updateStatus(ThingStatus.ONLINE);
+                logger.info("Device back ONLINE");
             }
 
         } catch (Exception e) {
-            logger.debug("Error refreshing Marstek device: {}", e.getMessage());
-            // Don't immediately go offline - could be transient network issue
-            // Only log the error unless it persists
+            consecutiveFailures++;
+            logger.debug("Error refreshing Marstek device: {}, consecutive failures: {}", e.getMessage(),
+                    consecutiveFailures);
+            
+            if (consecutiveFailures >= MAX_FAILURES_BEFORE_OFFLINE) {
+                if (getThing().getStatus() == ThingStatus.ONLINE) {
+                    updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.COMMUNICATION_ERROR,
+                            "Communication error: " + e.getMessage());
+                    logger.info("Device went OFFLINE after {} consecutive failures: {}", consecutiveFailures,
+                            e.getMessage());
+                }
+            }
+        }
+    }
+
+    /**
+     * Quick test to check if device is reachable
+     */
+    private boolean testDeviceReachable(String host, int port, int timeoutMs) {
+        try {
+            String request = "{\"id\":0,\"method\":\"Marstek.GetDevice\",\"params\":{}}";
+            byte[] response = MarstekUdpHelper.sendRequest(host, port, request.getBytes(StandardCharsets.UTF_8), 0,
+                    timeoutMs);
+            return response != null && response.length > 0;
+        } catch (Exception e) {
+            logger.debug("Device reachability test failed: {}", e.getMessage());
+            return false;
         }
     }
 
