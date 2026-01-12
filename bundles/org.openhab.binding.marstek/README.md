@@ -2,7 +2,7 @@
 
 <img src="doc/logo.png" alt="Marstek Logo" width="25%">
 
-Disclaimer -- AI generated document --
+Disclaimer -- (mostly) AI generated document --
 
 This binding integrates Marstek energy storage systems (Venus C/D/E series) with openHAB.
 It allows you to monitor battery status, solar generation, grid power, energy meters, and system operating modes via the Marstek Device Open API (Rev 1.0).
@@ -66,7 +66,25 @@ Things must be configured manually.
 | totalGridOutputEnergy   | Number:Energy| R          | Total Grid Output Energy          |
 | totalGridInputEnergy    | Number:Energy| R          | Total Grid Input Energy           |
 | totalLoadEnergy         | Number:Energy| R          | Total Load Energy                 |
-| operatingMode           | String       | R          | Operating Mode                    |
+| operatingMode           | String       | R          | Current Operating Mode            |
+
+### Energy System Control Channels
+
+| Channel              | Type              | Read/Write | Description                                    |
+|----------------------|-------------------|------------|------------------------------------------------|
+| modeSelect           | String            | W          | Select operating mode (Auto/AI/UPS/Manual/Passive)            |
+| passivePower         | Number:Power      | W          | Passive mode target power (0-10000W)          |
+| passiveCountdown     | Number:Time       | W          | Passive mode countdown (0-86400s)             |
+| passiveActivate      | Switch            | W          | Activate passive mode with configured settings |
+| manualActivate       | Switch            | W          | Activate manual mode with configured periods   |
+| timePeriod1_enabled  | Switch            | W          | Enable time period 1                          |
+| timePeriod1_start    | String            | W          | Period 1 start time (HH:MM)                   |
+| timePeriod1_end      | String            | W          | Period 1 end time (HH:MM)                     |
+| timePeriod1_weekdays | String            | W          | Period 1 active days                          |
+| timePeriod1_power    | Number:Power      | W          | Period 1 power setting (-10000 to 10000W)     |
+| timePeriod2_*        | Various           | W          | Time period 2 configuration (same as period 1) |
+| timePeriod3_*        | Various           | W          | Time period 3 configuration (same as period 1) |
+| timePeriod4_*        | Various           | W          | Time period 4 configuration (same as period 1) |
 
 ### Energy Meter Channels
 
@@ -126,6 +144,18 @@ Number:Energy TotalGridInputEnergy "Total Grid Input [%.2f kWh]" { channel="mars
 Number:Energy TotalLoadEnergy "Total Load [%.2f kWh]" { channel="marstek:battery:mydevice:totalLoadEnergy" }
 String OperatingMode "Operating Mode [%s]" { channel="marstek:battery:mydevice:operatingMode" }
 
+// Energy System Control
+String ModeSelect "Mode Selection" { channel="marstek:battery:mydevice:modeSelect" }
+Number:Power PassivePower "Passive Power [%.0f W]" { channel="marstek:battery:mydevice:passivePower" }
+Number:Time PassiveCountdown "Passive Countdown [%d s]" { channel="marstek:battery:mydevice:passiveCountdown" }
+Switch PassiveActivate "Activate Passive Mode" { channel="marstek:battery:mydevice:passiveActivate" }
+Switch ManualActivate "Activate Manual Mode" { channel="marstek:battery:mydevice:manualActivate" }
+Switch TimePeriod1Enabled "Period 1 Enabled" { channel="marstek:battery:mydevice:timePeriod1_enabled" }
+String TimePeriod1Start "Period 1 Start [%s]" { channel="marstek:battery:mydevice:timePeriod1_start" }
+String TimePeriod1End "Period 1 End [%s]" { channel="marstek:battery:mydevice:timePeriod1_end" }
+String TimePeriod1Weekdays "Period 1 Weekdays [%s]" { channel="marstek:battery:mydevice:timePeriod1_weekdays" }
+Number:Power TimePeriod1Power "Period 1 Power [%.0f W]" { channel="marstek:battery:mydevice:timePeriod1_power" }
+
 // Energy Meter
 Switch CtState "CT State" { channel="marstek:battery:mydevice:ctState" }
 Number:Power PhaseAPower "Phase A Power [%.0f W]" { channel="marstek:battery:mydevice:phaseAPower" }
@@ -168,6 +198,14 @@ sitemap marstek label="Marstek Energy System" {
         Text item=OperatingMode
     }
     
+    Frame label="Mode Control" {
+        Selection item=ModeSelect mappings=["Auto"="Auto", "AI"="AI", "UPS"="UPS"]
+        Switch item=PassiveActivate
+        Setpoint item=PassivePower minValue=0 maxValue=10000 step=100
+        Setpoint item=PassiveCountdown minValue=0 maxValue=3600 step=60
+        Switch item=ManualActivate
+    }
+    
     Frame label="Energy Totals" {
         Text item=TotalPvEnergy
         Text item=TotalGridOutputEnergy
@@ -195,6 +233,99 @@ sitemap marstek label="Marstek Energy System" {
 }
 ```
 
+## Operating Modes
+
+The Marstek device supports multiple operating modes that can be controlled via the binding:
+
+### Auto Mode
+
+Automatic mode lets the device manage power flow based on its internal algorithms.
+
+**Usage:**
+```java
+sendCommand(ModeSelect, "Auto")
+```
+
+### AI Mode
+
+AI-powered mode uses advanced algorithms to optimize energy usage.
+
+**Usage:**
+```java
+sendCommand(ModeSelect, "AI")
+```
+
+### UPS Mode
+
+UPS (Uninterruptible Power Supply) mode configures the device to charge at maximum power (2500W) continuously, 24/7. This ensures the battery is always fully charged and ready to provide backup power.
+
+**Usage:**
+```java
+sendCommand(ModeSelect, "UPS")
+```
+
+**What it does:**
+- Charges battery at full power (-2500W from grid)
+- Active 24 hours a day, 7 days a week
+- Ensures maximum backup power availability
+
+### Passive Mode
+
+Passive mode allows you to manually control the battery power for a specific duration. Use positive values to discharge (export to grid) or negative values to charge (import from grid).
+
+**Usage:**
+```java
+// Set power to 100W (discharge to grid)
+sendCommand(PassivePower, 100)
+
+// Set countdown to 300 seconds (5 minutes)
+sendCommand(PassiveCountdown, 300)
+
+// Activate passive mode
+sendCommand(PassiveActivate, ON)
+```
+
+**Examples:**
+- Charge at 100W for 5 minutes: `PassivePower=-100, PassiveCountdown=300`
+- Discharge at 500W for 10 minutes: `PassivePower=500, PassiveCountdown=600`
+- Charge at 2500W for 1 hour: `PassivePower=-2500, PassiveCountdown=3600`
+
+### Manual Mode
+
+Manual mode allows you to configure up to 4 time periods with specific power settings and weekday schedules.
+
+**Usage:**
+```java
+// Configure Period 1: Charge at 2000W during off-peak hours, weekdays only
+sendCommand(TimePeriod1Enabled, ON)
+sendCommand(TimePeriod1Start, "00:00")
+sendCommand(TimePeriod1End, "06:00")
+sendCommand(TimePeriod1Weekdays, "Mon-Fri")
+sendCommand(TimePeriod1Power, -2000)  // Negative = charge from grid
+
+// Configure Period 2: Discharge at 1000W during peak hours
+sendCommand(TimePeriod2Enabled, ON)
+sendCommand(TimePeriod2Start, "17:00")
+sendCommand(TimePeriod2End, "21:00")
+sendCommand(TimePeriod2Weekdays, "Daily")
+sendCommand(TimePeriod2Power, 1000)   // Positive = discharge to grid
+
+// Activate manual mode with configured periods
+sendCommand(ManualActivate, ON)
+```
+
+**Weekday Format:**
+- `Daily` - All days
+- `Mon-Fri` - Monday through Friday
+- `Sat-Sun` - Saturday and Sunday
+- Individual days: `Mon`, `Tue`, `Wed`, `Thu`, `Fri`, `Sat`, `Sun`
+- Custom combinations: `Mon,Wed,Fri`
+
+**Power Values:**
+- **Negative values** (-10000 to -1): Charge from grid
+- **Positive values** (1 to 10000): Discharge to grid
+- **Zero**: No power transfer
+
 ## Prerequisites
 
 1. Connect your Marstek device to your local network via WiFi or Ethernet
@@ -209,6 +340,7 @@ sitemap marstek label="Marstek Energy System" {
 The binding communicates with Marstek devices using JSON-RPC over UDP on port 30000 (default).
 The following API methods are supported:
 
+**Query Methods (Read):**
 - `Marstek.GetDevice` - Device information
 - `Bat.GetStatus` - Battery status
 - `PV.GetStatus` - Photovoltaic status
@@ -216,6 +348,9 @@ The following API methods are supported:
 - `ES.GetMode` - Operating mode
 - `EM.GetStatus` - Energy meter status
 - `Wifi.GetStatus` - WiFi status
+
+**Control Methods (Write):**
+- `ES.SetMode` - Set operating mode (Auto, AI, UPS, Passive, Manual)
 
 ## Troubleshooting
 

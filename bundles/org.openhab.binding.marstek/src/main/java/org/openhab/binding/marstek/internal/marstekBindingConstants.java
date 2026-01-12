@@ -52,6 +52,21 @@ public class marstekBindingConstants {
     public static final String CHANNEL_TOTAL_LOAD_ENERGY = "totalLoadEnergy";
     public static final String CHANNEL_OPERATING_MODE = "operatingMode";
 
+    // Energy System Control Channels (Writable)
+    public static final String CHANNEL_MODE_SELECT = "modeSelect";
+    public static final String CHANNEL_PASSIVE_POWER = "passivePower";
+    public static final String CHANNEL_PASSIVE_COUNTDOWN = "passiveCountdown";
+    public static final String CHANNEL_PASSIVE_ACTIVATE = "passiveActivate";
+    public static final String CHANNEL_MANUAL_ACTIVATE = "manualActivate";
+
+    // Manual Mode Time Period Channels (4 periods)
+    public static final String CHANNEL_GROUP_PERIOD_PREFIX = "timePeriod";
+    public static final String CHANNEL_PERIOD_ENABLED = "enabled";
+    public static final String CHANNEL_PERIOD_START = "start";
+    public static final String CHANNEL_PERIOD_END = "end";
+    public static final String CHANNEL_PERIOD_WEEKDAYS = "weekdays";
+    public static final String CHANNEL_PERIOD_POWER = "power";
+
     // Energy Meter Channels
     public static final String CHANNEL_CT_STATE = "ctState";
     public static final String CHANNEL_PHASE_A_POWER = "phaseAPower";
