@@ -699,57 +699,66 @@ public class marstekHandler extends BaseThingHandler {
             String host = config != null ? config.hostname : "127.0.0.1";
             int port = config != null ? config.port : 30000;
 
-            // Build time periods JSON array (only enabled periods)
-            StringBuilder periodsJson = new StringBuilder("[");
-            boolean first = true;
-            for (TimePeriod period : timePeriods) {
-                if (period.enabled) {
-                    if (!first) {
-                        periodsJson.append(",");
+            // Send ES.SetMode for each enabled period
+            int successCount = 0;
+            int enabledCount = 0;
+
+            for (int i = 0; i < timePeriods.length; i++) {
+                if (timePeriods[i].enabled) {
+                    enabledCount++;
+                    TimePeriod period = timePeriods[i];
+
+                    // Build request for this period (0-based index: 0=timer1, 1=timer2, etc)
+                    String request = String.format(
+                            "{\"id\":0,\"method\":\"ES.SetMode\",\"params\":{\"id\":0,\"config\":{\"mode\":\"Manual\",\"manual_cfg\":{\"time_num\":%d,\"start_time\":\"%s\",\"end_time\":\"%s\",\"week_set\":%d,\"power\":%d,\"enable\":1}}}}",
+                            i, period.start, period.end, period.weekdaysBitmask, period.power);
+
+                    logger.debug("Configuring manual mode period {} with request: {}", i, request);
+                    logger.info("Manual mode: period {}, time {}-{}, weekdays {}, power {}W", i, period.start,
+                            period.end, period.weekdaysBitmask, period.power);
+
+                    byte[] response = MarstekUdpHelper.sendRequest(host, port,
+                            request.getBytes(StandardCharsets.UTF_8), 0, 3000);
+
+                    if (response != null) {
+                        String responseStr = new String(response, StandardCharsets.UTF_8);
+                        logger.debug("Period {} response: {}", i, responseStr);
+
+                        JsonObject json = gson.fromJson(responseStr, JsonObject.class);
+                        JsonObject result = json != null ? json.getAsJsonObject("result") : null;
+
+                        if (result != null && result.has("set_result") && result.get("set_result").getAsBoolean()) {
+                            successCount++;
+                        } else {
+                            logger.warn("Failed to configure period {}", i);
+                        }
+                    } else {
+                        logger.warn("No response when configuring period {}", i);
                     }
-                    periodsJson.append(String.format("{\"start\":\"%s\",\"end\":\"%s\",\"weekdays\":%d,\"power\":%d}",
-                            period.start, period.end, period.weekdaysBitmask, period.power));
-                    first = false;
+
+                    // Delay between requests to avoid overwhelming device
+                    if (i < timePeriods.length - 1 && timePeriods[i + 1].enabled) {
+                        Thread.sleep(300);
+                    }
                 }
             }
-            periodsJson.append("]");
 
-            String request = String.format(
-                    "{\"id\":0,\"method\":\"ES.SetMode\",\"params\":{\"id\":0,\"config\":{\"mode\":\"Manual\",\"manual_cfg\":{\"time_periods\":%s}}}}",
-                    periodsJson);
+            if (enabledCount == 0) {
+                logger.warn("No enabled time periods found for manual mode");
+                updateState(CHANNEL_MANUAL_ACTIVATE, OnOffType.OFF);
+                return;
+            }
 
-            logger.debug("Activating manual mode with request: {}", request);
-            logger.debug("Time periods JSON: {}", periodsJson);
-            byte[] response = MarstekUdpHelper.sendRequest(host, port, request.getBytes(StandardCharsets.UTF_8), 0,
-                    2000);
-
-            if (response != null) {
-                String responseStr = new String(response, StandardCharsets.UTF_8);
-                logger.debug("Manual mode activation response: {}", responseStr);
-
-                JsonObject json = gson.fromJson(responseStr, JsonObject.class);
-                JsonObject result = json != null ? json.getAsJsonObject("result") : null;
-
-                if (result != null && result.has("set_result")) {
-                    boolean success = result.get("set_result").getAsBoolean();
-                    if (success) {
-                        logger.info("Successfully activated manual mode");
-                        // Reset the switch and update mode after a short delay
-                        scheduler.schedule(() -> {
-                            updateState(CHANNEL_MANUAL_ACTIVATE, OnOffType.OFF);
-                            refresh();
-                        }, 1, java.util.concurrent.TimeUnit.SECONDS);
-                    } else {
-                        logger.warn("Failed to activate manual mode (set_result=false)");
-                        updateState(CHANNEL_MANUAL_ACTIVATE, OnOffType.OFF);
-                    }
-                } else {
-                    logger.warn("Unexpected response when activating manual mode. Response: {}", responseStr);
-                    logger.warn("Parsed JSON: {}, Result object: {}", json, result);
+            if (successCount == enabledCount) {
+                logger.info("Successfully activated manual mode with {} periods", successCount);
+                // Reset the switch and update mode after a short delay
+                scheduler.schedule(() -> {
                     updateState(CHANNEL_MANUAL_ACTIVATE, OnOffType.OFF);
-                }
+                    refresh();
+                }, 1, java.util.concurrent.TimeUnit.SECONDS);
             } else {
-                logger.warn("No response when activating manual mode");
+                logger.warn("Activated manual mode but only {} of {} periods succeeded", successCount,
+                        enabledCount);
                 updateState(CHANNEL_MANUAL_ACTIVATE, OnOffType.OFF);
             }
         } catch (Exception e) {
