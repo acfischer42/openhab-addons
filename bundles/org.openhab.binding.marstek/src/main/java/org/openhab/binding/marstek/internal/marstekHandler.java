@@ -717,8 +717,8 @@ public class marstekHandler extends BaseThingHandler {
                     logger.info("Manual mode: period {}, time {}-{}, weekdays {}, power {}W", i, period.start,
                             period.end, period.weekdaysBitmask, period.power);
 
-                    byte[] response = MarstekUdpHelper.sendRequest(host, port,
-                            request.getBytes(StandardCharsets.UTF_8), 0, 3000);
+                    byte[] response = MarstekUdpHelper.sendRequest(host, port, request.getBytes(StandardCharsets.UTF_8),
+                            0, 3000);
 
                     if (response != null) {
                         String responseStr = new String(response, StandardCharsets.UTF_8);
@@ -757,8 +757,7 @@ public class marstekHandler extends BaseThingHandler {
                     refresh();
                 }, 1, java.util.concurrent.TimeUnit.SECONDS);
             } else {
-                logger.warn("Activated manual mode but only {} of {} periods succeeded", successCount,
-                        enabledCount);
+                logger.warn("Activated manual mode but only {} of {} periods succeeded", successCount, enabledCount);
                 updateState(CHANNEL_MANUAL_ACTIVATE, OnOffType.OFF);
             }
         } catch (Exception e) {
