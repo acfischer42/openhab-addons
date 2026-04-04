@@ -14,8 +14,9 @@ package org.openhab.binding.marstek.internal;
 
 import static org.openhab.binding.marstek.internal.marstekBindingConstants.*;
 
-import java.nio.charset.StandardCharsets;
 import java.time.ZonedDateTime;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ScheduledFuture;
 
 import org.eclipse.jdt.annotation.NonNullByDefault;
@@ -67,6 +68,8 @@ public class marstekHandler extends BaseThingHandler {
     // Manual mode time period storage (4 periods)
     private final TimePeriod[] timePeriods = new TimePeriod[4];
 
+    private @Nullable MarstekUdpClient marstekUdpClient;
+
     static class TimePeriod {
         boolean enabled = false;
         String start = "00:00";
@@ -81,6 +84,7 @@ public class marstekHandler extends BaseThingHandler {
         for (int i = 0; i < timePeriods.length; i++) {
             timePeriods[i] = new TimePeriod();
         }
+        logger.debug("marstekHandler created");
     }
 
     @Override
@@ -140,6 +144,7 @@ public class marstekHandler extends BaseThingHandler {
 
     @Override
     public void initialize() {
+        logger.debug("marstekHandler initialize");
         disposed = false;
         consecutiveFailures = 0;
         config = getConfigAs(marstekConfiguration.class);
@@ -148,35 +153,52 @@ public class marstekHandler extends BaseThingHandler {
             refreshInterval = config.refreshInterval;
         }
 
-        // Enforce minimum refresh interval of 5 seconds to avoid overwhelming device
+        // Warn if refresh interval is very aggressive
         if (refreshInterval < 5) {
-            logger.info("Refresh interval {} seconds is too low, using minimum of 5 seconds", refreshInterval);
-            refreshInterval = 5;
+            logger.warn(
+                    "Refresh interval {} seconds is very aggressive; may cause device to drop packets or become unresponsive",
+                    refreshInterval);
         }
 
         updateStatus(ThingStatus.UNKNOWN);
 
-        scheduler.execute(() -> {
-            if (disposed) {
-                return;
+        try {
+            if (marstekUdpClient != null) {
+                logger.debug("marstekHandler close prev connection");
+                // close old Connection
+                marstekUdpClient.close();
             }
+            logger.debug("marstekHandler create client");
+            marstekUdpClient = new MarstekUdpClient(getLocalPort(), getHost(), getPort());
 
-            // Test connectivity
-            boolean thingReachable = testConnection();
+            scheduler.execute(() -> {
+                if (disposed) {
+                    return;
+                }
 
-            if (thingReachable) {
-                updateStatus(ThingStatus.ONLINE);
-                // Schedule periodic polling (minimum 5 seconds enforced above)
-                refreshTask = scheduler.scheduleWithFixedDelay(this::refresh, 0, refreshInterval,
-                        java.util.concurrent.TimeUnit.SECONDS);
-            } else {
-                updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.COMMUNICATION_ERROR, "Could not connect to device");
-            }
-        });
+                // Test connectivity
+                boolean thingReachable = testConnection();
+
+                if (thingReachable) {
+                    updateStatus(ThingStatus.ONLINE);
+                    // Schedule periodic polling (minimum 5 seconds enforced above)
+                    refreshTask = scheduler.scheduleWithFixedDelay(this::refresh, 0, refreshInterval,
+                            java.util.concurrent.TimeUnit.SECONDS);
+                } else {
+                    updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.COMMUNICATION_ERROR,
+                            "Could not connect to device");
+                }
+            });
+
+        } catch (Exception e) {
+            logger.error("Could not create UDP-Client", e);
+            updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.COMMUNICATION_ERROR, "Could not create UDP-Client");
+        }
     }
 
     @Override
     public void dispose() {
+        logger.debug("dispose");
         disposed = true;
 
         ScheduledFuture<?> task = refreshTask;
@@ -184,27 +206,61 @@ public class marstekHandler extends BaseThingHandler {
             task.cancel(true);
             refreshTask = null;
         }
-
+        if (marstekUdpClient != null) {
+            marstekUdpClient.close();
+        }
         super.dispose();
+    }
+
+    protected String getHost() {
+        return config != null ? config.hostname : "127.0.0.1";
+    }
+
+    protected int getPort() {
+        return config != null ? config.port : 30000;
+    }
+
+    protected int getLocalPort() {
+        return config != null ? config.localPort : 0;
+    }
+
+    protected @Nullable String sendRequest(String request) throws Exception {
+        if (marstekUdpClient != null) {
+            return marstekUdpClient.sendAndWaitForResponseWithRetry(request);
+        }
+        return null;
+    }
+
+    protected String createRequestWithID(String id, String method, String params) {
+        String idParmString = "\"id\":\"" + id + "\"";
+        String paramsStr = Optional.ofNullable(params).orElse("");
+        return "{" + idParmString + ",\"method\":\"" + method + "\",\"params\":{" + idParmString
+                + (paramsStr.isEmpty() ? "" : "," + params) + "}}";
+    }
+
+    protected String createRequest(String method) {
+        return createRequest(method, "");
+    }
+
+    protected String createRequest(String method, String parms) {
+        String id = UUID.randomUUID().toString().replace("-", "").substring(6);
+        return createRequestWithID(id, method, parms);
     }
 
     private boolean testConnection() {
         try {
-            String host = config != null ? config.hostname : "127.0.0.1";
-            int port = config != null ? config.port : 30000;
 
-            logger.debug("Testing connection to Marstek device at {}:{}", host, port);
+            logger.debug("Testing connection to Marstek device at {}:{}", getHost(), getPort());
 
             // Send Marstek.GetDevice request with longer timeout for initialization
-            String request = "{\"id\":0,\"method\":\"Marstek.GetDevice\",\"params\":{}}";
-            byte[] response = MarstekUdpHelper.sendRequest(host, port, request.getBytes(StandardCharsets.UTF_8), 0,
-                    5000);
+            String request = createRequest("Marstek.GetDevice", "\"ble_mac\":\"0\"");
+            String response = sendRequest(request);
 
-            if (response != null && response.length > 0) {
-                logger.debug("Connection test successful, received {} bytes", response.length);
+            if (response != null && response.length() > 0) {
+                logger.debug("Connection test successful, received {} bytes", response.length());
                 return true;
             } else {
-                logger.warn("Connection test failed: No response from device at {}:{}", host, port);
+                logger.warn("Connection test failed: No response from device at {}:{}", getHost(), getPort());
                 return false;
             }
         } catch (Exception e) {
@@ -217,17 +273,15 @@ public class marstekHandler extends BaseThingHandler {
      * Refresh data from the Marstek device and update channels.
      */
     private void refresh() {
+        logger.debug("marstekHandler refresh {}", disposed);
         if (disposed) {
             return;
         }
 
         try {
-            String host = config != null ? config.hostname : "127.0.0.1";
-            int port = config != null ? config.port : 30000;
-            int timeoutMs = 5000; // Increased from 2000ms to 5000ms
 
             // Test if device is reachable before querying
-            boolean deviceReachable = testDeviceReachable(host, port, timeoutMs);
+            boolean deviceReachable = queryEnergySystemMode();
 
             if (!deviceReachable) {
                 consecutiveFailures++;
@@ -246,25 +300,9 @@ public class marstekHandler extends BaseThingHandler {
             // Device responded, reset failure counter
             consecutiveFailures = 0;
 
-            // Send warmup request (first UDP call after inactivity often times out)
-            // Use Marstek.GetDevice as it's lightweight and wakes up the UDP handler
-            String warmupRequest = "{\"id\":0,\"method\":\"Marstek.GetDevice\",\"params\":{}}";
-            byte[] warmupResponse = MarstekUdpHelper.sendRequest(host, port,
-                    warmupRequest.getBytes(StandardCharsets.UTF_8), 0, timeoutMs);
-            if (warmupResponse != null) {
-                logger.trace("Warmup call successful ({} bytes)", warmupResponse.length);
-            }
-
-            // Query all components with 1 second delays to avoid overwhelming the device
-            queryEnergySystemStatus(host, port, timeoutMs);
-            Thread.sleep(1000);
-            queryEnergySystemMode(host, port, timeoutMs);
-            Thread.sleep(1000);
-            queryEnergyMeterStatus(host, port, timeoutMs);
-            Thread.sleep(1000);
-            queryWifiStatus(host, port, timeoutMs);
-            Thread.sleep(1000);
-            queryBatteryStatus(host, port, 10000);
+            // queryEnergyMeterStatus();
+            // queryWifiStatus();
+            queryBatteryStatus();
             // PV.GetStatus is only supported on Venus D models, skip for Venus C/E
             // queryPvStatus(host, port, timeoutMs);
 
@@ -276,6 +314,7 @@ public class marstekHandler extends BaseThingHandler {
                 updateStatus(ThingStatus.ONLINE);
                 logger.info("Device back ONLINE");
             }
+            logger.debug("marstekHandler refresh finished");
 
         } catch (Exception e) {
             consecutiveFailures++;
@@ -296,30 +335,28 @@ public class marstekHandler extends BaseThingHandler {
     /**
      * Quick test to check if device is reachable
      */
-    private boolean testDeviceReachable(String host, int port, int timeoutMs) {
+    private boolean testDeviceReachable() {
         try {
-            String request = "{\"id\":0,\"method\":\"Marstek.GetDevice\",\"params\":{}}";
-            byte[] response = MarstekUdpHelper.sendRequest(host, port, request.getBytes(StandardCharsets.UTF_8), 0,
-                    timeoutMs);
-            return response != null && response.length > 0;
+
+            String request = createRequest("Marstek.GetDevice", "\"ble_mac\":\"0\"");
+            String response = sendRequest(request);
+            return response != null && !response.isEmpty();
         } catch (Exception e) {
-            logger.debug("Device reachability test failed: {}", e.getMessage());
+            logger.error("Device reachability test failed: {}", e.getMessage());
             return false;
         }
     }
 
-    private void queryBatteryStatus(String host, int port, int timeoutMs) {
+    private void queryBatteryStatus() {
         try {
-            logger.debug("Querying Bat.GetStatus from {}:{} with {}ms timeout", host, port, timeoutMs);
-            String request = "{\"id\":0,\"method\":\"Bat.GetStatus\",\"params\":{\"id\":0}}";
-            byte[] response = MarstekUdpHelper.sendRequest(host, port, request.getBytes(StandardCharsets.UTF_8), 0,
-                    timeoutMs);
+            logger.debug("Querying Bat.GetStatus from {}:{}", getHost(), getPort());
+            String request = createRequest("Bat.GetStatus");
+            String response = sendRequest(request);
 
             if (response != null) {
-                String responseStr = new String(response, StandardCharsets.UTF_8);
-                logger.trace("Battery response ({} bytes): {}", response.length,
-                        responseStr.replace("\n", " ").replace("\t", ""));
-                JsonObject json = gson.fromJson(responseStr, JsonObject.class);
+                logger.trace("Battery response ({} bytes): {}", response.length(),
+                        response.replace("\n", " ").replace("\t", ""));
+                JsonObject json = gson.fromJson(response, JsonObject.class);
                 JsonObject result = json.getAsJsonObject("result");
 
                 if (result != null) {
@@ -334,24 +371,22 @@ public class marstekHandler extends BaseThingHandler {
                     logger.debug("Bat.GetStatus returned null result");
                 }
             } else {
-                logger.debug("No response from Bat.GetStatus (timeout after {}ms)", timeoutMs);
+                logger.error("No response from Bat.GetStatus (timeout)");
             }
         } catch (Exception e) {
-            logger.debug("Error querying battery status: {}", e.getMessage(), e);
+            logger.error("Error querying battery status: {}", e.getMessage(), e);
         }
     }
 
-    private void queryPvStatus(String host, int port, int timeoutMs) {
+    private void queryPvStatus() {
         try {
-            String request = "{\"id\":0,\"method\":\"PV.GetStatus\",\"params\":{\"id\":0}}";
-            byte[] response = MarstekUdpHelper.sendRequest(host, port, request.getBytes(StandardCharsets.UTF_8), 0,
-                    timeoutMs);
+            String request = createRequest("PV.GetStatus");
+            String response = sendRequest(request);
 
             if (response != null) {
-                String responseStr = new String(response, StandardCharsets.UTF_8);
-                logger.trace("PV response ({} bytes): {}", response.length,
-                        responseStr.replace("\n", " ").replace("\t", ""));
-                JsonObject json = gson.fromJson(responseStr, JsonObject.class);
+                logger.trace("PV response ({} bytes): {}", response.length(),
+                        response.replace("\n", " ").replace("\t", ""));
+                JsonObject json = gson.fromJson(response, JsonObject.class);
                 JsonObject result = json.getAsJsonObject("result");
 
                 if (result != null) {
@@ -360,24 +395,22 @@ public class marstekHandler extends BaseThingHandler {
                     updateNumberChannel(CHANNEL_PV_CURRENT, result, "pv_current", Units.AMPERE);
                 }
             } else {
-                logger.debug("No response from PV.GetStatus (timeout or error)");
+                logger.error("No response from PV.GetStatus (timeout or error)");
             }
         } catch (Exception e) {
-            logger.debug("Error querying PV status: {}", e.getMessage());
+            logger.error("Error querying PV status: {}", e.getMessage());
         }
     }
 
-    private void queryEnergySystemStatus(String host, int port, int timeoutMs) {
+    private boolean queryEnergySystemStatus() {
         try {
-            String request = "{\"id\":0,\"method\":\"ES.GetStatus\",\"params\":{\"id\":0}}";
-            byte[] response = MarstekUdpHelper.sendRequest(host, port, request.getBytes(StandardCharsets.UTF_8), 0,
-                    timeoutMs);
+            String request = createRequest("ES.GetStatus");
+            String response = sendRequest(request);
 
             if (response != null) {
-                String responseStr = new String(response, StandardCharsets.UTF_8);
-                logger.trace("ES response ({} bytes): {}", response.length,
-                        responseStr.replace("\n", " ").replace("\t", ""));
-                JsonObject json = gson.fromJson(responseStr, JsonObject.class);
+                logger.trace("ES response ({} bytes): {}", response.length(),
+                        response.replace("\n", " ").replace("\t", ""));
+                JsonObject json = gson.fromJson(response, JsonObject.class);
                 JsonObject result = json.getAsJsonObject("result");
 
                 if (result != null) {
@@ -391,25 +424,25 @@ public class marstekHandler extends BaseThingHandler {
                             Units.WATT_HOUR);
                     updateNumberChannel(CHANNEL_TOTAL_LOAD_ENERGY, result, "total_load_energy", Units.WATT_HOUR);
                 }
+                return true;
             } else {
-                logger.debug("No response from ES.GetStatus (timeout or error)");
+                logger.error("No response from ES.GetStatus (timeout or error)");
             }
         } catch (Exception e) {
-            logger.debug("Error querying energy system status: {}", e.getMessage());
+            logger.error("Error querying energy system status: {}", e.getMessage());
         }
+        return false;
     }
 
-    private void queryEnergySystemMode(String host, int port, int timeoutMs) {
+    private boolean queryEnergySystemMode() {
         try {
-            String request = "{\"id\":0,\"method\":\"ES.GetMode\",\"params\":{\"id\":0}}";
-            byte[] response = MarstekUdpHelper.sendRequest(host, port, request.getBytes(StandardCharsets.UTF_8), 0,
-                    timeoutMs);
+            String request = createRequest("ES.GetMode");
+            String response = sendRequest(request);
 
             if (response != null) {
-                String responseStr = new String(response, StandardCharsets.UTF_8);
-                logger.trace("ES mode response ({} bytes): {}", response.length,
-                        responseStr.replace("\n", " ").replace("\t", ""));
-                JsonObject json = gson.fromJson(responseStr, JsonObject.class);
+                logger.trace("ES mode response ({} bytes): {}", response.length(),
+                        response.replace("\n", " ").replace("\t", ""));
+                JsonObject json = gson.fromJson(response, JsonObject.class);
                 JsonObject result = json.getAsJsonObject("result");
 
                 if (result != null) {
@@ -424,25 +457,25 @@ public class marstekHandler extends BaseThingHandler {
                     updateNumberChannel(CHANNEL_OFFGRID_POWER, result, "offgrid_power", Units.WATT);
                     // Note: Phase power and CT state come from EM.GetStatus, not ES.GetMode
                 }
+                return true;
             } else {
-                logger.debug("No response from ES.GetMode (timeout or error)");
+                logger.error("No response from ES.GetMode (timeout or error)");
             }
         } catch (Exception e) {
-            logger.debug("Error querying energy system mode: {}", e.getMessage());
+            logger.error("Error querying energy system mode: {}", e.getMessage());
         }
+        return false;
     }
 
-    private void queryEnergyMeterStatus(String host, int port, int timeoutMs) {
+    private void queryEnergyMeterStatus() {
         try {
-            String request = "{\"id\":0,\"method\":\"EM.GetStatus\",\"params\":{\"id\":0}}";
-            byte[] response = MarstekUdpHelper.sendRequest(host, port, request.getBytes(StandardCharsets.UTF_8), 0,
-                    timeoutMs);
+            String request = createRequest("EM.GetStatus");
+            String response = sendRequest(request);
 
             if (response != null) {
-                String responseStr = new String(response, StandardCharsets.UTF_8);
-                logger.trace("EM response ({} bytes): {}", response.length,
-                        responseStr.replace("\n", " ").replace("\t", ""));
-                JsonObject json = gson.fromJson(responseStr, JsonObject.class);
+                logger.trace("EM response ({} bytes): {}", response.length(),
+                        response.replace("\n", " ").replace("\t", ""));
+                JsonObject json = gson.fromJson(response, JsonObject.class);
                 JsonObject result = json.getAsJsonObject("result");
 
                 if (result != null) {
@@ -456,24 +489,22 @@ public class marstekHandler extends BaseThingHandler {
                     updateNumberChannel(CHANNEL_TOTAL_METER_POWER, result, "total_power", Units.WATT);
                 }
             } else {
-                logger.debug("No response from EM.GetStatus (timeout or error)");
+                logger.error("No response from EM.GetStatus (timeout or error)");
             }
         } catch (Exception e) {
-            logger.debug("Error querying energy meter status: {}", e.getMessage());
+            logger.error("Error querying energy meter status: {}", e.getMessage());
         }
     }
 
-    private void queryWifiStatus(String host, int port, int timeoutMs) {
+    private void queryWifiStatus() {
         try {
-            String request = "{\"id\":0,\"method\":\"Wifi.GetStatus\",\"params\":{\"id\":0}}";
-            byte[] response = MarstekUdpHelper.sendRequest(host, port, request.getBytes(StandardCharsets.UTF_8), 0,
-                    timeoutMs);
+            String request = createRequest("Wifi.GetStatus");
+            String response = sendRequest(request);
 
             if (response != null) {
-                String responseStr = new String(response, StandardCharsets.UTF_8);
-                logger.trace("WiFi response ({} bytes): {}", response.length,
-                        responseStr.replace("\n", " ").replace("\t", ""));
-                JsonObject json = gson.fromJson(responseStr, JsonObject.class);
+                logger.trace("WiFi response ({} bytes): {}", response.length(),
+                        response.replace("\n", " ").replace("\t", ""));
+                JsonObject json = gson.fromJson(response, JsonObject.class);
                 JsonObject result = json.getAsJsonObject("result");
 
                 if (result != null) {
@@ -535,23 +566,23 @@ public class marstekHandler extends BaseThingHandler {
 
             String request;
             if ("Auto".equals(mode)) {
-                request = "{\"id\":0,\"method\":\"ES.SetMode\",\"params\":{\"id\":0,\"config\":{\"mode\":\"Auto\",\"auto_cfg\":{\"enable\":1}}}}";
+                request = createRequest("ES.SetMode", "\"config\":{\"mode\":\"Auto\",\"auto_cfg\":{\"enable\":1}}");
             } else if ("AI".equals(mode)) {
-                request = "{\"id\":0,\"method\":\"ES.SetMode\",\"params\":{\"id\":0,\"config\":{\"mode\":\"AI\",\"ai_cfg\":{\"enable\":1}}}}";
+                request = createRequest("ES.SetMode", "\"config\":{\"mode\":\"AI\",\"ai_cfg\":{\"enable\":1}}");
             } else if ("UPS".equals(mode)) {
                 // UPS mode = Manual mode with 24/7 operation at -2500W (charge from grid)
-                request = "{\"id\":0,\"method\":\"ES.SetMode\",\"params\":{\"id\":0,\"config\":{\"mode\":\"Manual\",\"manual_cfg\":{\"time_num\":1,\"start_time\":\"00:00\",\"end_time\":\"23:59\",\"week_set\":127,\"power\":-2500,\"enable\":1}}}}";
+                request = createRequest("ES.SetMode",
+                        "\"config\":{\"mode\":\"Manual\",\"manual_cfg\":{\"time_num\":1,\"start_time\":\"00:00\",\"end_time\":\"23:59\",\"week_set\":127,\"power\":-2500,\"enable\":1}}");
             } else {
                 logger.warn("Unsupported mode selection: {}", mode);
                 return;
             }
 
             logger.debug("Setting operating mode to: {}", mode);
-            byte[] response = MarstekUdpHelper.sendRequest(host, port, request.getBytes(StandardCharsets.UTF_8), 0,
-                    2000);
+            String response = sendRequest(request);
 
             if (response != null) {
-                JsonObject json = gson.fromJson(new String(response, StandardCharsets.UTF_8), JsonObject.class);
+                JsonObject json = gson.fromJson(response, JsonObject.class);
                 JsonObject result = json.getAsJsonObject("result");
 
                 if (result != null && result.has("set_result")) {
@@ -586,16 +617,15 @@ public class marstekHandler extends BaseThingHandler {
             String host = config != null ? config.hostname : "127.0.0.1";
             int port = config != null ? config.port : 30000;
 
-            String request = String.format(
-                    "{\"id\":0,\"method\":\"ES.SetMode\",\"params\":{\"id\":0,\"config\":{\"mode\":\"Passive\",\"passive_cfg\":{\"power\":%d,\"cd_time\":%d}}}}",
-                    power, countdown);
+            String request = createRequest("ES.SetMode",
+                    String.format("\"config\":{\"mode\":\"Passive\",\"passive_cfg\":{\"power\":%d,\"cd_time\":%d}}",
+                            power, countdown));
 
             logger.debug("Activating passive mode with power={} W, countdown={} s", power, countdown);
-            byte[] response = MarstekUdpHelper.sendRequest(host, port, request.getBytes(StandardCharsets.UTF_8), 0,
-                    2000);
+            String response = sendRequest(request);
 
             if (response != null) {
-                JsonObject json = gson.fromJson(new String(response, StandardCharsets.UTF_8), JsonObject.class);
+                JsonObject json = gson.fromJson(response, JsonObject.class);
                 JsonObject result = json.getAsJsonObject("result");
 
                 if (result != null && result.has("set_result")) {
@@ -771,22 +801,20 @@ public class marstekHandler extends BaseThingHandler {
                     TimePeriod period = timePeriods[i];
 
                     // Build request for this period (0-based index: 0=timer1, 1=timer2, etc)
-                    String request = String.format(
-                            "{\"id\":0,\"method\":\"ES.SetMode\",\"params\":{\"id\":0,\"config\":{\"mode\":\"Manual\",\"manual_cfg\":{\"time_num\":%d,\"start_time\":\"%s\",\"end_time\":\"%s\",\"week_set\":%d,\"power\":%d,\"enable\":1}}}}",
-                            i, period.start, period.end, period.weekdaysBitmask, period.power);
+                    String request = createRequest("ES.SetMode", String.format(
+                            "\"config\":{\"mode\":\"Manual\",\"manual_cfg\":{\"time_num\":%d,\"start_time\":\"%s\",\"end_time\":\"%s\",\"week_set\":%d,\"power\":%d,\"enable\":1}}",
+                            i, period.start, period.end, period.weekdaysBitmask, period.power));
 
                     logger.debug("Configuring manual mode period {} with request: {}", i, request);
                     logger.info("Manual mode: period {}, time {}-{}, weekdays {}, power {}W", i, period.start,
                             period.end, period.weekdaysBitmask, period.power);
 
-                    byte[] response = MarstekUdpHelper.sendRequest(host, port, request.getBytes(StandardCharsets.UTF_8),
-                            0, 3000);
+                    String response = sendRequest(request);
 
                     if (response != null) {
-                        String responseStr = new String(response, StandardCharsets.UTF_8);
-                        logger.debug("Period {} response: {}", i, responseStr);
+                        logger.debug("Period {} response: {}", i, response);
 
-                        JsonObject json = gson.fromJson(responseStr, JsonObject.class);
+                        JsonObject json = gson.fromJson(response, JsonObject.class);
                         JsonObject result = json != null ? json.getAsJsonObject("result") : null;
 
                         if (result != null && result.has("set_result") && result.get("set_result").getAsBoolean()) {
