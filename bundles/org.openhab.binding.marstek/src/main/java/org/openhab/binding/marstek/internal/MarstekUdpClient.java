@@ -20,8 +20,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -42,6 +40,8 @@ import com.google.gson.JsonObject;
  */
 @NonNullByDefault
 public class MarstekUdpClient {
+    private static final int MAX_RETRIES = 7;
+
     private final Logger logger = LoggerFactory.getLogger(MarstekUdpClient.class);
     private final DatagramSocket socket;
     private final InetAddress remoteAddress;
@@ -51,7 +51,7 @@ public class MarstekUdpClient {
     // Wartende Requests: id -> Future
     private final Map<String, CompletableFuture<String>> pendingRequests = new ConcurrentHashMap<>();
 
-    private final ExecutorService executor = Executors.newCachedThreadPool();
+    private @Nullable Thread receiverThread;
 
     public MarstekUdpClient(int localPort, String remoteHost, int remotePort) throws Exception {
         logger.info("Creating MarstekUdpClient for host {} on Port {} with local port {}", remoteHost, remotePort,
@@ -67,7 +67,7 @@ public class MarstekUdpClient {
     }
 
     private void startReceiver() {
-        Thread receiverThread = new Thread(() -> {
+        Thread thread = new Thread(() -> {
             byte[] buffer = new byte[2048];
 
             while (!socket.isClosed()) {
@@ -82,23 +82,27 @@ public class MarstekUdpClient {
                             json.replace("\n", " ").replace("\t", ""));
                     logger.debug("Received response {} from {}", id, remoteAddress);
 
-                    if (id != null && pendingRequests.containsKey(id)) {
+                    if (id != null) {
                         CompletableFuture<String> future = pendingRequests.remove(id);
                         if (future != null) {
                             future.complete(json);
                         }
-                    } else {
-
                     }
-
                 } catch (Exception e) {
-                    logger.error("Error reading from Socket", e);
+                    if (!socket.isClosed()) {
+                        logger.error("Error reading from Socket", e);
+                    }
+                } catch (Error e) {
+                    logger.error("Fatal error in receiver thread for {}, thread will terminate", remoteAddress, e);
+                    throw e;
                 }
             }
-        });
+            logger.debug("Receiver thread for {} exiting (socket closed)", remoteAddress);
+        }, "MarstekUDP-receiver-" + remoteAddress.getHostAddress());
 
-        receiverThread.setDaemon(true);
-        receiverThread.start();
+        thread.setDaemon(true);
+        thread.start();
+        this.receiverThread = thread;
     }
 
     public String sendAndWaitForResponseWithRetry(String json) throws Exception {
@@ -110,24 +114,24 @@ public class MarstekUdpClient {
         CompletableFuture<String> future = new CompletableFuture<>();
         pendingRequests.put(id, future);
         int timeout = 250;
-        int retys = 0;
+        int retries = 0;
 
-        while (retys < 15) {
-            logger.debug("Send/resend Package: {} retries: {} timeout {}", id, retys, timeout);
+        while (retries < MAX_RETRIES) {
+            logger.debug("Send/resend Package: {} retries: {} timeout {}", id, retries, timeout);
             send(json);
 
             try {
                 return future.get(timeout, TimeUnit.MILLISECONDS);
             } catch (TimeoutException e) {
-                retys++;
+                retries++;
                 if (timeout < 1000) {
                     timeout = timeout * 2;
                 }
             }
         }
         pendingRequests.remove(id);
-        logger.debug("No Reponse for: {} retries: {} timeout {}", id, retys, timeout);
-        throw new TimeoutException("Timeout für Request id=" + id);
+        logger.debug("No response for: {} retries: {} timeout {}", id, retries, timeout);
+        throw new TimeoutException("Timeout for request id=" + id);
     }
 
     public String sendAndWaitForResponse(String json, long timeoutMillis) throws Exception {
@@ -175,9 +179,16 @@ public class MarstekUdpClient {
         return null;
     }
 
+    /**
+     * Check if the receiver thread is still alive and processing responses.
+     */
+    public boolean isReceiverAlive() {
+        Thread thread = this.receiverThread;
+        return thread != null && thread.isAlive();
+    }
+
     public void close() {
-        logger.info("close Client ");
+        logger.info("Closing MarstekUdpClient for {}", remoteAddress);
         socket.close();
-        executor.shutdown();
     }
 }

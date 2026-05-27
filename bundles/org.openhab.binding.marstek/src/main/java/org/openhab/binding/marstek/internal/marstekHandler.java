@@ -278,29 +278,19 @@ public class marstekHandler extends BaseThingHandler {
             return;
         }
 
-        try {
-
-            // Test if device is reachable before querying
-            boolean deviceReachable = testDeviceReachable();
-
-            if (!deviceReachable) {
+        // If receiver thread is dead or client missing, attempt to recreate
+        if (!isClientHealthy()) {
+            logger.warn("UDP client unhealthy for {}, attempting reconnection", getHost());
+            reconnectClient();
+            if (!isClientHealthy()) {
                 consecutiveFailures++;
-                logger.debug("Device unreachable, consecutive failures: {}", consecutiveFailures);
-
-                if (consecutiveFailures >= MAX_FAILURES_BEFORE_OFFLINE) {
-                    if (getThing().getStatus() == ThingStatus.ONLINE) {
-                        updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.COMMUNICATION_ERROR,
-                                "No response from device");
-                        logger.info("Device went OFFLINE after {} consecutive failures", consecutiveFailures);
-                    }
-                }
+                handleFailure("UDP client could not be recreated");
                 return;
             }
+        }
 
-            // Device responded, reset failure counter
-            consecutiveFailures = 0;
-
-            // Query all components with 1 second delays to avoid overwhelming the device
+        try {
+            // Query all components - the first query implicitly tests reachability
             queryEnergySystemStatus();
             queryEnergySystemMode();
             queryEnergyMeterStatus();
@@ -308,6 +298,9 @@ public class marstekHandler extends BaseThingHandler {
             queryBatteryStatus();
             // PV.GetStatus is only supported on Venus D models, skip for Venus C/E
             // queryPvStatus(host, port, timeoutMs);
+
+            // Device responded, reset failure counter
+            consecutiveFailures = 0;
 
             // Update last update timestamp
             safeUpdateState(CHANNEL_LAST_UPDATE, new DateTimeType(ZonedDateTime.now()));
@@ -323,30 +316,44 @@ public class marstekHandler extends BaseThingHandler {
             consecutiveFailures++;
             logger.debug("Error refreshing Marstek device: {}, consecutive failures: {}", e.getMessage(),
                     consecutiveFailures);
+            handleFailure(e.getMessage());
+        }
+    }
 
-            if (consecutiveFailures >= MAX_FAILURES_BEFORE_OFFLINE) {
-                if (getThing().getStatus() == ThingStatus.ONLINE) {
-                    updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.COMMUNICATION_ERROR,
-                            "Communication error: " + e.getMessage());
-                    logger.info("Device went OFFLINE after {} consecutive failures: {}", consecutiveFailures,
-                            e.getMessage());
-                }
+    private void handleFailure(@Nullable String reason) {
+        if (consecutiveFailures >= MAX_FAILURES_BEFORE_OFFLINE) {
+            if (getThing().getStatus() == ThingStatus.ONLINE) {
+                updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.COMMUNICATION_ERROR,
+                        "Communication error: " + reason);
+                logger.info("Device went OFFLINE after {} consecutive failures: {}", consecutiveFailures, reason);
             }
+            // Attempt reconnection on next cycle by recreating the client
+            reconnectClient();
         }
     }
 
     /**
-     * Quick test to check if device is reachable
+     * Check if the UDP client is present and its receiver thread is alive.
      */
-    private boolean testDeviceReachable() {
-        try {
+    private boolean isClientHealthy() {
+        MarstekUdpClient client = marstekUdpClient;
+        return client != null && client.isReceiverAlive();
+    }
 
-            String request = createRequest("Marstek.GetDevice");
-            String response = sendRequest(request);
-            return response != null && !response.isEmpty();
+    /**
+     * Close the existing UDP client and create a fresh one.
+     */
+    private void reconnectClient() {
+        try {
+            MarstekUdpClient oldClient = marstekUdpClient;
+            if (oldClient != null) {
+                oldClient.close();
+            }
+            marstekUdpClient = new MarstekUdpClient(getLocalPort(), getHost(), getPort());
+            logger.info("Reconnected UDP client for {}", getHost());
         } catch (Exception e) {
-            logger.debug("Device reachability test failed: {}", e.getMessage());
-            return false;
+            logger.warn("Failed to reconnect UDP client for {}: {}", getHost(), e.getMessage());
+            marstekUdpClient = null;
         }
     }
 
@@ -546,7 +553,7 @@ public class marstekHandler extends BaseThingHandler {
     }
 
     private void safeUpdateState(String channelId, org.openhab.core.types.State state) {
-        if (!disposed && getThing().getStatus() == ThingStatus.ONLINE) {
+        if (!disposed) {
             updateState(channelId, state);
         }
     }
