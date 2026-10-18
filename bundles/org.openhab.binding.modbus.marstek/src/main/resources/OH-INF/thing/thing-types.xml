@@ -1,0 +1,347 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<thing:thing-descriptions bindingId="modbus"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:thing="https://openhab.org/schemas/thing-description/v1.0.0"
+	xsi:schemaLocation="https://openhab.org/schemas/thing-description/v1.0.0 https://openhab.org/schemas/thing-description-1.0.0.xsd">
+
+	<thing-type id="marstek-venus">
+		<supported-bridge-type-refs>
+			<bridge-type-ref id="tcp"/>
+		</supported-bridge-type-refs>
+
+		<label>Marstek Venus Battery</label>
+		<description>Marstek Venus battery system (A/D/E) connected via Modbus TCP.</description>
+		<category>Battery</category>
+		<channel-groups>
+			<channel-group id="battery" typeId="battery"/>
+			<channel-group id="grid" typeId="grid"/>
+			<channel-group id="temperature" typeId="temperature"/>
+			<channel-group id="energy" typeId="energy"/>
+			<channel-group id="status" typeId="status"/>
+			<channel-group id="control" typeId="control"/>
+		</channel-groups>
+		<config-description-ref uri="thing-type:marstek:venus"/>
+	</thing-type>
+
+	<!-- Channel Groups -->
+
+	<channel-group-type id="battery">
+		<label>Battery</label>
+		<category>Battery</category>
+		<channels>
+			<channel id="battery-power" typeId="battery-power"/>
+			<channel id="battery-voltage" typeId="battery-voltage"/>
+			<channel id="battery-current" typeId="battery-current"/>
+			<channel id="battery-soc" typeId="battery-soc"/>
+			<channel id="battery-stored-energy" typeId="battery-stored-energy"/>
+			<channel id="battery-cycle-count" typeId="battery-cycle-count"/>
+			<channel id="max-cell-voltage" typeId="max-cell-voltage"/>
+			<channel id="min-cell-voltage" typeId="min-cell-voltage"/>
+		</channels>
+	</channel-group-type>
+
+	<channel-group-type id="grid">
+		<label>AC / Grid</label>
+		<channels>
+			<channel id="ac-voltage" typeId="ac-voltage"/>
+			<channel id="ac-frequency" typeId="ac-frequency"/>
+			<channel id="ac-power" typeId="ac-power"/>
+			<channel id="grid-ct-power" typeId="grid-ct-power"/>
+			<channel id="offgrid-voltage" typeId="offgrid-voltage"/>
+		</channels>
+	</channel-group-type>
+
+	<channel-group-type id="temperature">
+		<label>Temperatures</label>
+		<channels>
+			<channel id="internal-temperature" typeId="internal-temperature"/>
+			<channel id="mos1-temperature" typeId="mos1-temperature"/>
+			<channel id="mos2-temperature" typeId="mos2-temperature"/>
+			<channel id="max-cell-temperature" typeId="max-cell-temperature"/>
+		</channels>
+	</channel-group-type>
+
+	<channel-group-type id="energy">
+		<label>Energy Totals</label>
+		<channels>
+			<channel id="total-charge-energy" typeId="total-charge-energy"/>
+			<channel id="total-discharge-energy" typeId="total-discharge-energy"/>
+			<channel id="daily-charge-energy" typeId="daily-charge-energy"/>
+			<channel id="daily-discharge-energy" typeId="daily-discharge-energy"/>
+			<channel id="monthly-charge-energy" typeId="monthly-charge-energy"/>
+			<channel id="monthly-discharge-energy" typeId="monthly-discharge-energy"/>
+		</channels>
+	</channel-group-type>
+
+	<channel-group-type id="status">
+		<label>Status</label>
+		<channels>
+			<channel id="inverter-state" typeId="inverter-state"/>
+			<channel id="alarm-status" typeId="alarm-status"/>
+			<channel id="fault-status" typeId="fault-status"/>
+			<channel id="wifi-status" typeId="wifi-status"/>
+			<channel id="wifi-rssi" typeId="wifi-rssi"/>
+		</channels>
+	</channel-group-type>
+
+	<channel-group-type id="control">
+		<label>Control</label>
+		<channels>
+			<channel id="rs485-control-mode" typeId="rs485-control-mode"/>
+			<channel id="force-mode" typeId="force-mode"/>
+			<channel id="charge-to-soc" typeId="charge-to-soc"/>
+			<channel id="set-charge-power" typeId="set-charge-power"/>
+			<channel id="set-discharge-power" typeId="set-discharge-power"/>
+			<channel id="user-work-mode" typeId="user-work-mode"/>
+			<channel id="backup-function" typeId="backup-function"/>
+			<channel id="max-charge-power" typeId="max-charge-power"/>
+			<channel id="max-discharge-power" typeId="max-discharge-power"/>
+		</channels>
+	</channel-group-type>
+
+	<!-- Channel Types: Battery -->
+
+	<channel-type id="battery-power">
+		<item-type>Number:Power</item-type>
+		<label>Battery Power</label>
+		<description>Battery charge/discharge power. Positive = charging, negative = discharging.</description>
+		<state readOnly="true" pattern="%.0f %unit%"/>
+	</channel-type>
+
+	<channel-type id="battery-voltage">
+		<item-type>Number:ElectricPotential</item-type>
+		<label>Battery Voltage</label>
+		<state readOnly="true" pattern="%.2f %unit%"/>
+	</channel-type>
+
+	<channel-type id="battery-current">
+		<item-type>Number:ElectricCurrent</item-type>
+		<label>Battery Current</label>
+		<state readOnly="true" pattern="%.2f %unit%"/>
+	</channel-type>
+
+	<channel-type id="battery-soc">
+		<item-type>Number:Dimensionless</item-type>
+		<label>Battery State of Charge</label>
+		<state readOnly="true" pattern="%.1f %%"/>
+	</channel-type>
+
+	<channel-type id="battery-stored-energy">
+		<item-type>Number:Energy</item-type>
+		<label>Battery Stored Energy</label>
+		<state readOnly="true" pattern="%.3f %unit%"/>
+	</channel-type>
+
+	<channel-type id="battery-cycle-count">
+		<item-type>Number</item-type>
+		<label>Battery Cycle Count</label>
+		<state readOnly="true" pattern="%.0f"/>
+	</channel-type>
+
+	<channel-type id="max-cell-voltage">
+		<item-type>Number:ElectricPotential</item-type>
+		<label>Max Cell Voltage</label>
+		<state readOnly="true" pattern="%.3f %unit%"/>
+	</channel-type>
+
+	<channel-type id="min-cell-voltage">
+		<item-type>Number:ElectricPotential</item-type>
+		<label>Min Cell Voltage</label>
+		<state readOnly="true" pattern="%.3f %unit%"/>
+	</channel-type>
+
+	<!-- Channel Types: Grid -->
+
+	<channel-type id="ac-voltage">
+		<item-type>Number:ElectricPotential</item-type>
+		<label>AC Voltage</label>
+		<state readOnly="true" pattern="%.1f %unit%"/>
+	</channel-type>
+
+	<channel-type id="ac-frequency">
+		<item-type>Number:Frequency</item-type>
+		<label>AC Frequency</label>
+		<state readOnly="true" pattern="%.1f %unit%"/>
+	</channel-type>
+
+	<channel-type id="ac-power">
+		<item-type>Number:Power</item-type>
+		<label>AC Power</label>
+		<description>AC power from inverter.</description>
+		<state readOnly="true" pattern="%.0f %unit%"/>
+	</channel-type>
+
+	<channel-type id="grid-ct-power">
+		<item-type>Number:Power</item-type>
+		<label>Grid CT Power</label>
+		<description>Grid power measured by CT clamp. Negative = importing, positive = exporting.</description>
+		<state readOnly="true" pattern="%.0f %unit%"/>
+	</channel-type>
+
+	<channel-type id="offgrid-voltage">
+		<item-type>Number:ElectricPotential</item-type>
+		<label>Offgrid/Backup Voltage</label>
+		<state readOnly="true" pattern="%.1f %unit%"/>
+	</channel-type>
+
+	<!-- Channel Types: Temperature -->
+
+	<channel-type id="internal-temperature">
+		<item-type>Number:Temperature</item-type>
+		<label>Internal Temperature</label>
+		<state readOnly="true" pattern="%.1f %unit%"/>
+	</channel-type>
+
+	<channel-type id="mos1-temperature" advanced="true">
+		<item-type>Number:Temperature</item-type>
+		<label>MOS1 Temperature</label>
+		<state readOnly="true" pattern="%.1f %unit%"/>
+	</channel-type>
+
+	<channel-type id="mos2-temperature" advanced="true">
+		<item-type>Number:Temperature</item-type>
+		<label>MOS2 Temperature</label>
+		<state readOnly="true" pattern="%.1f %unit%"/>
+	</channel-type>
+
+	<channel-type id="max-cell-temperature">
+		<item-type>Number:Temperature</item-type>
+		<label>Max Cell Temperature</label>
+		<state readOnly="true" pattern="%.1f %unit%"/>
+	</channel-type>
+
+	<!-- Channel Types: Energy -->
+
+	<channel-type id="total-charge-energy">
+		<item-type>Number:Energy</item-type>
+		<label>Total Charge Energy</label>
+		<state readOnly="true" pattern="%.2f %unit%"/>
+	</channel-type>
+
+	<channel-type id="total-discharge-energy">
+		<item-type>Number:Energy</item-type>
+		<label>Total Discharge Energy</label>
+		<state readOnly="true" pattern="%.2f %unit%"/>
+	</channel-type>
+
+	<channel-type id="daily-charge-energy">
+		<item-type>Number:Energy</item-type>
+		<label>Daily Charge Energy</label>
+		<state readOnly="true" pattern="%.2f %unit%"/>
+	</channel-type>
+
+	<channel-type id="daily-discharge-energy">
+		<item-type>Number:Energy</item-type>
+		<label>Daily Discharge Energy</label>
+		<state readOnly="true" pattern="%.2f %unit%"/>
+	</channel-type>
+
+	<channel-type id="monthly-charge-energy">
+		<item-type>Number:Energy</item-type>
+		<label>Monthly Charge Energy</label>
+		<state readOnly="true" pattern="%.2f %unit%"/>
+	</channel-type>
+
+	<channel-type id="monthly-discharge-energy">
+		<item-type>Number:Energy</item-type>
+		<label>Monthly Discharge Energy</label>
+		<state readOnly="true" pattern="%.2f %unit%"/>
+	</channel-type>
+
+	<!-- Channel Types: Status -->
+
+	<channel-type id="inverter-state">
+		<item-type>Number</item-type>
+		<label>Inverter State</label>
+		<description>0=Sleep, 1=Standby, 2=Charge, 3=Discharge, 4=Backup, 5=OTA, 6=Bypass</description>
+		<state readOnly="true" pattern="%.0f"/>
+	</channel-type>
+
+	<channel-type id="alarm-status" advanced="true">
+		<item-type>Number</item-type>
+		<label>Alarm Status</label>
+		<description>Alarm status bitfield.</description>
+		<state readOnly="true" pattern="%.0f"/>
+	</channel-type>
+
+	<channel-type id="fault-status" advanced="true">
+		<item-type>Number</item-type>
+		<label>Fault Status</label>
+		<description>Fault status bitfield.</description>
+		<state readOnly="true" pattern="%.0f"/>
+	</channel-type>
+
+	<channel-type id="wifi-status" advanced="true">
+		<item-type>Number</item-type>
+		<label>WiFi Status</label>
+		<state readOnly="true" pattern="%.0f"/>
+	</channel-type>
+
+	<channel-type id="wifi-rssi" advanced="true">
+		<item-type>Number:Power</item-type>
+		<label>WiFi Signal Strength</label>
+		<state readOnly="true" pattern="%.0f %unit%"/>
+	</channel-type>
+
+	<!-- Channel Types: Control (read/write) -->
+
+	<channel-type id="rs485-control-mode">
+		<item-type>Switch</item-type>
+		<label>RS485 Controlled by Binding</label>
+		<description>ON = binding controls battery (app locked out), OFF = app has control.</description>
+	</channel-type>
+
+	<channel-type id="force-mode">
+		<item-type>Number</item-type>
+		<label>Force Mode</label>
+		<description>0=None, 1=Force Charge, 2=Force Discharge.</description>
+		<state pattern="%.0f"/>
+	</channel-type>
+
+	<channel-type id="charge-to-soc">
+		<item-type>Number:Dimensionless</item-type>
+		<label>Charge To SOC</label>
+		<description>Target SOC percentage for force charge (0-100).</description>
+		<state pattern="%.0f %%"/>
+	</channel-type>
+
+	<channel-type id="set-charge-power">
+		<item-type>Number:Power</item-type>
+		<label>Set Charge Power</label>
+		<description>Charge power setpoint in watts.</description>
+		<state pattern="%.0f %unit%"/>
+	</channel-type>
+
+	<channel-type id="set-discharge-power">
+		<item-type>Number:Power</item-type>
+		<label>Set Discharge Power</label>
+		<description>Discharge power setpoint in watts.</description>
+		<state pattern="%.0f %unit%"/>
+	</channel-type>
+
+	<channel-type id="user-work-mode">
+		<item-type>Number</item-type>
+		<label>User Work Mode</label>
+		<description>0=Self-consumption, 1=Anti-feed, 2=Trade/AI.</description>
+		<state pattern="%.0f"/>
+	</channel-type>
+
+	<channel-type id="backup-function">
+		<item-type>Switch</item-type>
+		<label>Backup Battery Outlet</label>
+		<description>ON = backup outlet active, OFF = backup outlet disabled.</description>
+	</channel-type>
+
+	<channel-type id="max-charge-power">
+		<item-type>Number:Power</item-type>
+		<label>Max Charge Power</label>
+		<state readOnly="true" pattern="%.0f %unit%"/>
+	</channel-type>
+
+	<channel-type id="max-discharge-power">
+		<item-type>Number:Power</item-type>
+		<label>Max Discharge Power</label>
+		<state readOnly="true" pattern="%.0f %unit%"/>
+	</channel-type>
+
+</thing:thing-descriptions>
