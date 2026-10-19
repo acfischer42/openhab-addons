@@ -12,6 +12,7 @@
  */
 package org.openhab.binding.modbus.marstek.internal;
 
+import java.math.BigDecimal;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -21,7 +22,6 @@ import java.util.List;
 import java.util.Map;
 
 import org.eclipse.jdt.annotation.NonNullByDefault;
-import org.eclipse.jdt.annotation.Nullable;
 import org.openhab.binding.modbus.handler.BaseModbusThingHandler;
 import org.openhab.core.io.transport.modbus.AsyncModbusFailure;
 import org.openhab.core.io.transport.modbus.AsyncModbusReadResult;
@@ -30,6 +30,10 @@ import org.openhab.core.io.transport.modbus.ModbusReadFunctionCode;
 import org.openhab.core.io.transport.modbus.ModbusReadRequestBlueprint;
 import org.openhab.core.io.transport.modbus.ModbusRegisterArray;
 import org.openhab.core.io.transport.modbus.ModbusWriteRegisterRequestBlueprint;
+import org.openhab.core.library.types.DecimalType;
+import org.openhab.core.library.types.OnOffType;
+import org.openhab.core.library.types.QuantityType;
+import org.openhab.core.library.unit.Units;
 import org.openhab.core.thing.ChannelUID;
 import org.openhab.core.thing.Thing;
 import org.openhab.core.thing.ThingStatus;
@@ -113,7 +117,7 @@ public class MarstekVenusHandler extends BaseModbusThingHandler {
 
     @Override
     public void handleCommand(ChannelUID channelUID, Command command) {
-        if (command instanceof RefreshType && !this.modbusRequests.isEmpty()) {
+        if (command instanceof RefreshType) {
             for (ModbusRequest request : this.modbusRequests) {
                 submitOneTimePoll(request.blueprint,
                         (AsyncModbusReadResult result) -> this.readSuccessful(request, result), this::readError);
@@ -121,16 +125,59 @@ public class MarstekVenusHandler extends BaseModbusThingHandler {
             return;
         }
 
-        // Handle write commands for control channels
         String channelId = channelUID.getIdWithoutGroup();
-        if (command instanceof Number numberCommand) {
-            @Nullable
-            Integer registerAddress = WRITE_REGISTER_MAP.get(channelId);
-            if (registerAddress != null) {
-                int value = numberCommand.intValue();
-                writeRegister(registerAddress, value);
-            }
+        Integer registerAddress = WRITE_REGISTER_MAP.get(channelId);
+        if (!"control".equals(channelUID.getGroupId()) || registerAddress == null) {
+            logger.debug("Ignoring command {} for non-writable channel {}", command, channelUID);
+            return;
         }
+
+        final int value;
+        try {
+            value = commandValue(channelId, command);
+        } catch (IllegalArgumentException | ArithmeticException e) {
+            logger.warn("Rejected command {} for {}: {}", command, channelUID, e.getMessage());
+            return;
+        }
+        writeRegister(registerAddress, value);
+    }
+
+    private static int commandValue(String channelId, Command command) {
+        if ("rs485-control-mode".equals(channelId) || "backup-function".equals(channelId)) {
+            if (!(command instanceof OnOffType onOff)) {
+                throw new IllegalArgumentException("Expected ON or OFF");
+            }
+            return "rs485-control-mode".equals(channelId) ? (onOff == OnOffType.ON ? 21930 : 21947)
+                    : (onOff == OnOffType.ON ? 0 : 1);
+        }
+
+        BigDecimal value;
+        if (command instanceof QuantityType<?> quantity) {
+            QuantityType<?> normalized = switch (channelId) {
+                case "set-charge-power", "set-discharge-power" -> quantity.toUnit(Units.WATT);
+                case "charge-to-soc" -> quantity.toUnit(Units.PERCENT);
+                default -> throw new IllegalArgumentException("Expected a unitless mode number");
+            };
+            if (normalized == null) {
+                throw new IllegalArgumentException("Incompatible command unit");
+            }
+            value = normalized.toBigDecimal();
+        } else if (command instanceof DecimalType decimal) {
+            value = decimal.toBigDecimal();
+        } else {
+            throw new IllegalArgumentException("Expected a numeric command");
+        }
+
+        int result = value.intValueExact();
+        int maximum = switch (channelId) {
+            case "force-mode", "user-work-mode" -> 2;
+            case "charge-to-soc" -> 100;
+            default -> 65535;
+        };
+        if (result < 0 || result > maximum) {
+            throw new IllegalArgumentException("Expected an integer between 0 and " + maximum);
+        }
+        return result;
     }
 
     private void writeRegister(int address, int value) {

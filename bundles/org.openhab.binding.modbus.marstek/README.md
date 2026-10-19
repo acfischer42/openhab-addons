@@ -116,24 +116,63 @@ a successful read marks it online again.
 
 ## Control write support
 
-The handler submits single-register writes for numeric commands sent to these
-channels:
+The handler submits single-register writes for commands sent to these channels.
+Changing a power setpoint does not automatically enable RS485 control or change
+the force mode.
 
 | Channel | Register | Values described by the channel |
 |---------|---------:|---------------------------------|
+| `control#rs485-control-mode` | 42000 | `ON` writes 21930 (external control); `OFF` writes 21947 (return control to the app) |
 | `control#force-mode` | 42010 | 0 none, 1 force charge, 2 force discharge |
 | `control#charge-to-soc` | 42011 | Target SOC (0–100) |
 | `control#set-charge-power` | 42020 | Charge power (W) |
 | `control#set-discharge-power` | 42021 | Discharge power (W) |
 | `control#user-work-mode` | 43000 | 0 self-consumption, 1 anti-feed, 2 trade/AI |
+| `control#backup-function` | 41200 | `ON` writes 0 (outlet enabled); `OFF` writes 1 (outlet disabled) |
 
-**Caution:** Although `control#rs485-control-mode` and
-`control#backup-function` are Switch channels and their values are read, the
-current handler only processes numeric write commands. Switch commands to
-those channels therefore do not write to the device. Do not rely on them to
-enable or disable those functions. The binding does not currently validate
-numeric command ranges; verify values and device behavior before enabling
-automation that writes to the battery.
+Power commands with units are converted to watts (`0.5 kW` writes 500).
+Unitless numeric power commands are interpreted as watts. SOC quantities are
+converted to percent; unitless SOC commands are interpreted as percentages.
+Mode commands must be unitless integers between 0 and 2, and SOC must be an
+integer between 0 and 100 after conversion. Power must be a whole number of
+watts between 0 and 65535, the unsigned 16-bit register limit. This is not the
+battery's rated power limit: use the device's documented limits and the
+maximum-power readbacks to choose appropriate setpoints.
+
+Fractional register values, out-of-range values, incompatible units, and
+unsupported command types are rejected with a warning in the openHAB log,
+without sending a write. Write failures are also logged. Readback is updated by
+regular polling; a successful Modbus write alone does not prove that the battery
+has entered the requested operating state.
+
+### Example: request discharge at 500 W
+
+Link these Items to the control channels:
+
+```java
+Switch MarstekExternalControl {
+    channel="modbus:marstek-venus:marstekBridge:venus:control#rs485-control-mode"
+}
+Number:Power MarstekDischargePower {
+    channel="modbus:marstek-venus:marstekBridge:venus:control#set-discharge-power"
+}
+Number MarstekForceMode {
+    channel="modbus:marstek-venus:marstekBridge:venus:control#force-mode"
+}
+```
+
+1. Send `ON` to `MarstekExternalControl` to enable external control. This can
+   restrict control from the Marstek app. Confirm the readback on a subsequent
+   poll rather than relying on an Item's optimistic/autoupdate state.
+2. Send `500 W` (or `0.5 kW`) to `MarstekDischargePower`, and confirm its readback.
+3. Send `2` to `MarstekForceMode` to request force discharge.
+4. Verify the force-mode readback and actual battery power. Device SOC limits,
+   alarms, and firmware behavior can prevent discharge even if writes succeed.
+
+To leave force mode, send `0` to `MarstekForceMode`. To return control to the
+app, send `OFF` to `MarstekExternalControl`. Confirm the readbacks and battery
+behavior. The binding does not automatically reset these settings when it is
+stopped or uninstalled.
 
 ## Testing notes
 
